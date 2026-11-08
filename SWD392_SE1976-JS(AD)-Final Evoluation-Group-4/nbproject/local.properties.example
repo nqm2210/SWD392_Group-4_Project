@@ -1,0 +1,2 @@
+tomcat.home=C:/Program Files/Apache Software Foundation/Tomcat 10.1
+jdbc.jar=${user.home}/.m2/repository/com/microsoft/sqlserver/mssql-jdbc/13.6.0.jre11/mssql-jdbc-13.6.0.jre11.jar

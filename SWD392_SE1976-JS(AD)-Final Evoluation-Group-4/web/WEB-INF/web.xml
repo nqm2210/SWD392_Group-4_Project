@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd" version="5.0">
+    <display-name>Hospital Management</display-name>
+    <servlet>
+        <servlet-name>default</servlet-name>
+        <init-param>
+            <param-name>fileEncoding</param-name>
+            <param-value>UTF-8</param-value>
+        </init-param>
+    </servlet>
+    <welcome-file-list><welcome-file>/</welcome-file></welcome-file-list>
+    <session-config><session-timeout>30</session-timeout><cookie-config><http-only>true</http-only></cookie-config></session-config>
+    <error-page><error-code>403</error-code><location>/WEB-INF/views/forbidden.jsp</location></error-page>
+</web-app>

@@ -1,73 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- You may freely edit this file. See commented blocks below for -->
-<!-- some examples of how to customize the build. -->
-<!-- (If you delete it and reopen the project it will be recreated.) -->
-<!-- By default, only the Clean and Build commands use this build script. -->
-<!-- Commands such as Run, Debug, and Test only use this build script if -->
-<!-- the Compile on Save feature is turned off for the project. -->
-<!-- You can turn off the Compile on Save (or Deploy on Save) setting -->
-<!-- in the project's Project Properties dialog box.-->
-<project name="SWD392_SE1976-JS(AD)-Final_Evoluation-Group-4" default="default" basedir=".">
-    <description>Builds, tests, and runs the project SWD392_SE1976-JS(AD)-Final Evoluation-Group-4.</description>
-    <import file="nbproject/build-impl.xml"/>
-    <!--
-
-    There exist several targets which are by default empty and which can be 
-    used for execution of your tasks. These targets are usually executed 
-    before and after some main targets. They are: 
-
-      -pre-init:                 called before initialization of project properties
-      -post-init:                called after initialization of project properties
-      -pre-compile:              called before javac compilation
-      -post-compile:             called after javac compilation
-      -pre-compile-single:       called before javac compilation of single file
-      -post-compile-single:      called after javac compilation of single file
-      -pre-compile-test:         called before javac compilation of JUnit tests
-      -post-compile-test:        called after javac compilation of JUnit tests
-      -pre-compile-test-single:  called before javac compilation of single JUnit test
-      -post-compile-test-single: called after javac compilation of single JUunit test
-      -pre-jar:                  called before JAR building
-      -post-jar:                 called after JAR building
-      -post-clean:               called after cleaning build products
-
-    (Targets beginning with '-' are not intended to be called on their own.)
-
-    Example of inserting an obfuscator after compilation could look like this:
-
-        <target name="-post-compile">
-            <obfuscate>
-                <fileset dir="${build.classes.dir}"/>
-            </obfuscate>
-        </target>
-
-    For list of available properties check the imported 
-    nbproject/build-impl.xml file. 
-
-
-    Another way to customize the build is by overriding existing main targets.
-    The targets of interest are: 
-
-      -init-macrodef-javac:     defines macro for javac compilation
-      -init-macrodef-junit:     defines macro for junit execution
-      -init-macrodef-debug:     defines macro for class debugging
-      -init-macrodef-java:      defines macro for class execution
-      -do-jar:                  JAR building
-      run:                      execution of project 
-      -javadoc-build:           Javadoc generation
-      test-report:              JUnit report generation
-
-    An example of overriding the target for project execution could look like this:
-
-        <target name="run" depends="SWD392_SE1976-JS(AD)-Final_Evoluation-Group-4-impl.jar">
-            <exec dir="bin" executable="launcher.exe">
-                <arg file="${dist.jar}"/>
-            </exec>
-        </target>
-
-    Notice that the overridden target depends on the jar target and not only on 
-    the compile target as the regular run target does. Again, for a list of available 
-    properties which you can use, check the target you are overriding in the
-    nbproject/build-impl.xml file. 
-
-    -->
+<project name="HospitalManagement" default="war" basedir=".">
+    <property environment="env"/>
+    <property file="nbproject/private/local.properties"/>
+    <property name="src.dir" value="src/java"/>
+    <property name="test.dir" value="test"/>
+    <property name="web.dir" value="web"/>
+    <property name="build.dir" value="build"/>
+    <property name="classes.dir" value="${build.dir}/web/WEB-INF/classes"/>
+    <property name="test.classes.dir" value="${build.dir}/test/classes"/>
+    <property name="dist.dir" value="dist"/>
+    <property name="war.file" value="${dist.dir}/HospitalManagement.war"/>
+    <property name="tomcat.home" value="C:/Program Files/Apache Software Foundation/Tomcat 10.1"/>
+    <property name="jdbc.jar" value="${user.home}/.m2/repository/com/microsoft/sqlserver/mssql-jdbc/13.6.0.jre11/mssql-jdbc-13.6.0.jre11.jar"/>
+    <property name="servlet.jar" value="${tomcat.home}/lib/servlet-api.jar"/>
+    <property name="servlet.jar.fallback" value="${user.home}/.m2/repository/jakarta/servlet/jakarta.servlet-api/6.0.0/jakarta.servlet-api-6.0.0.jar"/>
+    <condition property="servlet.jar.effective" value="${servlet.jar}" else="${servlet.jar.fallback}"><available file="${servlet.jar}"/></condition>
+    <path id="compile.classpath"><pathelement location="${servlet.jar.effective}"/><pathelement location="${jdbc.jar}"/></path>
+    <target name="check-config">
+        <fail message="Không tìm thấy Jakarta Servlet API. Đặt tomcat.home hoặc servlet.jar trong nbproject/private/local.properties."><condition><not><available file="${servlet.jar.effective}"/></not></condition></fail>
+        <fail message="Không tìm thấy Microsoft JDBC Driver. Đặt jdbc.jar trong nbproject/private/local.properties."><condition><not><available file="${jdbc.jar}"/></not></condition></fail>
+    </target>
+    <target name="clean"><delete dir="${build.dir}"/><delete dir="${dist.dir}"/></target>
+    <target name="compile" depends="check-config">
+        <mkdir dir="${classes.dir}"/>
+        <javac srcdir="${src.dir}" destdir="${classes.dir}" source="17" target="17" encoding="UTF-8" includeantruntime="false"><classpath refid="compile.classpath"/></javac>
+    </target>
+    <target name="test" depends="compile">
+        <mkdir dir="${test.classes.dir}"/>
+        <javac srcdir="${test.dir}" destdir="${test.classes.dir}" source="17" target="17" encoding="UTF-8" includeantruntime="false"><classpath><path refid="compile.classpath"/><pathelement location="${classes.dir}"/></classpath></javac>
+        <java classname="hospital.TestSuite" fork="true" failonerror="true"><classpath><pathelement location="${test.classes.dir}"/><pathelement location="${classes.dir}"/></classpath></java>
+    </target>
+    <target name="war" depends="test">
+        <mkdir dir="${dist.dir}"/><copy todir="${build.dir}/web"><fileset dir="${web.dir}"/></copy>
+        <copy file="${jdbc.jar}" todir="${build.dir}/web/WEB-INF/lib"/>
+        <war destfile="${war.file}" basedir="${build.dir}/web"/><echo message="Đã tạo ${war.file}"/>
+    </target>
+    <target name="deploy" depends="war"><copy file="${war.file}" todir="${tomcat.home}/webapps" overwrite="true"/></target>
+    <target name="jsp-check" depends="war" description="Compile every JSP with Jasper at Tomcat's Java 8 JSP source compatibility">
+        <mkdir dir="${build.dir}/jsp"/>
+        <java classname="org.apache.jasper.JspC" fork="true" failonerror="true" outputproperty="jsp.check.stdout" errorproperty="jsp.check.stderr">
+            <classpath><fileset dir="${tomcat.home}/lib" includes="*.jar"/><pathelement location="${ant.home}/lib/ant.jar"/><pathelement location="${tomcat.home}/bin/tomcat-juli.jar"/><pathelement location="${classes.dir}"/></classpath>
+            <arg value="-uriroot"/><arg file="${build.dir}/web"/>
+            <arg value="-d"/><arg file="${build.dir}/jsp"/>
+            <arg value="-compile"/><arg value="-source"/><arg value="1.8"/><arg value="-target"/><arg value="1.8"/>
+        </java>
+        <condition property="jsp.check.success"><contains string="${jsp.check.stdout}${jsp.check.stderr}" substring="Generation completed with [0] errors"/></condition>
+        <fail unless="jsp.check.success" message="Tomcat Jasper did not report successful compilation of every JSP. Output: ${jsp.check.stdout}${jsp.check.stderr}"/>
+        <echo message="Tomcat Jasper compiled all JSPs with zero errors."/>
+    </target>
 </project>
