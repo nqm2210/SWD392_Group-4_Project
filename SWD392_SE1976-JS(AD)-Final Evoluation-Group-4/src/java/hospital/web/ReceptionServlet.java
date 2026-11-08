@@ -29,6 +29,26 @@ public class ReceptionServlet extends HttpServlet {
         if(!CsrfToken.isValid(req.getSession(false),req.getParameter("csrfToken"))){res.sendError(HttpServletResponse.SC_FORBIDDEN,"Phiên biểu mẫu đã hết hạn. Hãy tải lại trang.");return;}
         Integer appointmentId=hospital.validation.DoctorProfileValidator.positiveInteger(req.getParameter("appointmentId"));
         if(appointmentId==null){res.sendError(HttpServletResponse.SC_BAD_REQUEST,"Mã lịch hẹn không hợp lệ.");return;}
+        String action=req.getParameter("action");
+        if("cancel".equals(action)){
+            String reason=req.getParameter("cancellationReason");
+            if(reason==null||reason.trim().isEmpty()||reason.trim().length()>255){
+                req.setAttribute("actionError","Lý do hủy là bắt buộc và tối đa 255 ký tự.");
+                render(req,res,user);
+                return;
+            }
+            try{
+                dao.cancelAppointmentByReceptionist(appointmentId,user.id(),reason.trim());
+                SessionFlash.put(req.getSession(),"reception.message","Đã hủy lịch hẹn thành công.");
+                res.sendRedirect(req.getContextPath()+"/dashboard?page=appointments");
+                return;
+            }catch(SQLException ex){
+                getServletContext().log("Không thể hủy lịch hẹn.",ex);
+                req.setAttribute("actionError","Không thể hủy lịch hẹn: "+(ex.getMessage()!=null?ex.getMessage():""));
+                render(req,res,user);
+                return;
+            }
+        }
         try{
             int queueNumber=dao.checkInAppointment(appointmentId,user.id(),LocalDate.now());
             var session=req.getSession();session.setAttribute("checkInQueueNumberOnce",queueNumber);
@@ -55,6 +75,7 @@ public class ReceptionServlet extends HttpServlet {
         String keyword="appointments".equals(page)?req.getParameter("keyword"):null;
         req.setAttribute("page",page);req.setAttribute("menus",RoleAccess.menusFor(user.role()));req.setAttribute("menuKeys",RoleAccess.menuKeysFor(user.role()));
         req.setAttribute("csrfToken",CsrfToken.getOrCreate(req.getSession()));req.setAttribute("date",date.toString());req.setAttribute("statusFilter",status==null?"":status);req.setAttribute("keyword",keyword==null?"":keyword);
+        req.setAttribute("receptionMessage",SessionFlash.consume(req.getSession(false),"reception.message"));
         var session=req.getSession(false);Object queueNumber=session==null?null:session.getAttribute("checkInQueueNumberOnce");req.setAttribute("checkedIn",queueNumber instanceof Integer);req.setAttribute("queueNumber",queueNumber);if(session!=null)session.removeAttribute("checkInQueueNumberOnce");
         try{List<AppointmentSummary> appointments=dao.findAppointmentsForReceptionist(date,status,keyword);req.setAttribute("appointments",appointments);}
         catch(SQLException ex){getServletContext().log("Không thể tải danh sách lịch hẹn.",ex);req.setAttribute("loadError","Không thể tải lịch hẹn từ database.");}

@@ -66,7 +66,16 @@ public class DoctorWorkflowServlet extends HttpServlet {
             String targetPage=req.getParameter("view");if(targetPage==null||!List.of("consultation","patients","prescriptions","lab-orders").contains(targetPage))targetPage="consultation";
             SessionFlash.put(req.getSession(),"doctor.saved",successMessage(action));
             res.sendRedirect(req.getContextPath()+"/dashboard?page="+targetPage+("complete".equals(action)?"":"&appointmentId="+id));
-        }catch(SQLException ex){getServletContext().log("Không thể cập nhật hồ sơ khám.",ex);req.setAttribute("actionError",safeError(ex));render(req,res,user,id);}
+        }catch(SQLException ex){
+            getServletContext().log("Không thể cập nhật hồ sơ khám.",ex);
+            req.setAttribute("actionError",safeError(ex));
+            if("service".equals(action)){
+                req.setAttribute("postedCatalogId",req.getParameter("catalogId"));
+                req.setAttribute("postedPriority",req.getParameter("priority"));
+                req.setAttribute("postedInstructions",req.getParameter("clinicalInstructions"));
+            }
+            render(req,res,user,id);
+        }
     }
 
     private void render(HttpServletRequest req,HttpServletResponse res,StaffUser user,Integer selected)throws ServletException,IOException{
@@ -79,10 +88,13 @@ public class DoctorWorkflowServlet extends HttpServlet {
         req.setAttribute("csrfToken",CsrfToken.getOrCreate(req.getSession()));req.setAttribute("savedMessage",SessionFlash.consume(req.getSession(false),"doctor.saved"));
         try{
             req.setAttribute("visits",dao.findDoctorVisits(user.id(),date));
+            Integer appointmentId=selected==null?hospital.validation.DoctorProfileValidator.positiveInteger(req.getParameter("appointmentId")):selected;
+            if(appointmentId!=null){
+                req.setAttribute("prescriptionLines",dao.findPrescriptionLines(appointmentId,user.id()));
+                req.setAttribute("appointmentServiceOrders",dao.findServiceOrdersForAppointment(appointmentId,user.id()));
+            }
             if("prescriptions".equals(page)){
                 req.setAttribute("medicines",dao.findActiveMedicines());
-                Integer appointmentId=selected==null?hospital.validation.DoctorProfileValidator.positiveInteger(req.getParameter("appointmentId")):selected;
-                if(appointmentId!=null)req.setAttribute("prescriptionLines",dao.findPrescriptionLines(appointmentId,user.id()));
             }
             if("lab-orders".equals(page))req.setAttribute("medicalServices",dao.findMedicalServices());
         }catch(SQLException ex){getServletContext().log("Không thể tải dữ liệu chuyên môn của bác sĩ.",ex);req.setAttribute("loadError","Không thể tải dữ liệu chuyên môn từ database.");}

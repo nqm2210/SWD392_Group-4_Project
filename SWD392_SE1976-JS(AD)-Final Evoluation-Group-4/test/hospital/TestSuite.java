@@ -29,6 +29,7 @@ public class TestSuite {
         require(missingSlot.containsKey("slotId"),"Không cho gửi lịch hẹn khi chưa có khung giờ thật");
         require(RoleAccess.menusFor("Receptionist").contains("Check-in"),"Receptionist phải có quyền check-in");
         require(RoleAccess.menusFor("Manager").contains("Danh mục thuốc"),"Danh mục thuốc chỉ được thêm dưới Manager theo yêu cầu hiện tại");
+        require(RoleAccess.menusFor("Manager").contains("Quản lý nhân sự"),"Manager phải thấy mục quản lý nhân sự");
         require(!RoleAccess.pagesFor("Doctor").contains("medicines"),"Doctor không được quản trị danh mục thuốc");
         require(!RoleAccess.isSupported("Cashier"),"Không được tự thêm role không có trong database");
         String hash=PasswordHasher.hash("test-password-2026");
@@ -52,6 +53,18 @@ public class TestSuite {
         require(PatientLookupValidator.patientIdCandidate("9999999999")==null,"Không để mã PatientId tràn số gây lỗi request");
         require(DoctorProfileValidator.validate("Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000","Available").isEmpty(),"Hồ sơ bác sĩ hợp lệ phải được chấp nhận");
         require(!DoctorProfileValidator.validate("","bad-email","","0","","","","-1","Other").isEmpty(),"Hồ sơ bác sĩ sai phải bị từ chối");
+        require(DoctorProfileValidator.validate("A".repeat(101),"doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000","Available").containsKey("fullName"),"Họ tên bác sĩ vượt 100 ký tự phải bị từ chối");
+        require(DoctorProfileValidator.validate("Bác sĩ Demo","doctor@example.test","DEMO-1000","4","S".repeat(101),"BS.","NOI-10","150000","Available").containsKey("specialization"),"Chuyên khoa vượt 100 ký tự phải bị từ chối");
+        require(DoctorProfileValidator.validate("Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","T".repeat(51),"NOI-10","150000","Available").containsKey("academicTitle"),"Học hàm học vị vượt 50 ký tự phải bị từ chối");
+        require(DoctorProfileValidator.validate("Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","10000000000000000","Available").containsKey("fee"),"Phí khám 17 chữ số phải bị từ chối theo DECIMAL(18,2)");
+        require(DoctorProfileValidator.validate("Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","1E5","Available").containsKey("fee"),"Phí khám dạng số mũ phải bị từ chối");
+        require(DoctorProfileValidator.validate("Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000.50","Available").isEmpty(),"Phí khám hợp lệ có phần thập phân phải được chấp nhận");
+        require(DoctorProfileValidator.validate("doctor.demo","","Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000","Available").isEmpty(),"Tên đăng nhập hợp lệ và mật khẩu để trống phải được chấp nhận");
+        require(DoctorProfileValidator.validate("bad username","","Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000","Available").containsKey("username"),"Tên đăng nhập chứa khoảng trắng phải bị từ chối");
+        require(DoctorProfileValidator.validate("doctor.demo","12345","Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000","Available").containsKey("newPassword"),"Mật khẩu mới dưới 6 ký tự phải bị từ chối");
+        require(DoctorProfileValidator.validateStaffAccount("reception_01","","Lễ tân Demo","reception@example.test","0901234567","").isEmpty(),"Tài khoản lễ tân hợp lệ được phép không gán khoa và giữ mật khẩu");
+        require(DoctorProfileValidator.validateStaffAccount("medical_01","new-pass-2026","Nhân viên y tế","medical@example.test","0901234568","4").isEmpty(),"Tài khoản nhân viên y tế hợp lệ được chấp nhận");
+        require(DoctorProfileValidator.validateStaffAccount("medical_01","","Nhân viên y tế","bad-email","0901234568","0").containsKey("departmentId"),"Khoa không hợp lệ của tài khoản nhân viên phải bị từ chối");
         require(MedicalServiceValidator.validate("SRV-01","Xét nghiệm máu","1","120000","Mô tả").isEmpty(),"Dịch vụ hợp lệ phải được chấp nhận");
         require(!MedicalServiceValidator.validate("","","0","-1","x".repeat(256)).isEmpty(),"Dịch vụ sai phải bị từ chối");
         require(MedicalServiceValidator.validate("SRV-02","Xét nghiệm","1","10000000000000000","").containsKey("unitPrice"),"DECIMAL(18,2) phải từ chối 17 chữ số phần nguyên");
@@ -79,6 +92,16 @@ public class TestSuite {
         try { AppointmentSafety.requireSlotReserved(1); require(true,"Slot được đặt thành công đúng một lần"); } catch (Exception ex) { throw new AssertionError("Lần cập nhật slot đầu tiên phải thành công", ex); }
         passedIfThrows(() -> AppointmentSafety.requireServiceOrdersReviewed(1), "Không hoàn tất khi còn chỉ định hoặc kết quả chưa phát hành");
         try { AppointmentSafety.requireServiceOrdersReviewed(0); require(true,"Không có chỉ định đang chờ thì hồ sơ có thể hoàn tất"); } catch (Exception ex) { throw new AssertionError("Không có chỉ định đang chờ thì có thể hoàn tất", ex); }
+        passedIfThrows(() -> AppointmentSafety.requireDoctorOwnership(false), "Bác sĩ không sở hữu ca khám phải bị từ chối truy cập");
+        try { AppointmentSafety.requireDoctorOwnership(true); require(true,"Bác sĩ sở hữu ca khám được phép xử lý"); } catch (Exception ex) { throw new AssertionError("Bác sĩ sở hữu ca khám phải được phép", ex); }
+        passedIfThrows(() -> AppointmentSafety.requireRecordEditable("COMPLETED"), "Hồ sơ đã COMPLETED phải ở chế độ chỉ đọc không cho sửa");
+        try { AppointmentSafety.requireRecordEditable("IN_PROGRESS"); require(true,"Hồ sơ IN_PROGRESS được phép chỉnh sửa"); } catch (Exception ex) { throw new AssertionError("Hồ sơ IN_PROGRESS phải được sửa", ex); }
+        passedIfThrows(() -> AppointmentSafety.requireOnlineCancellationWindow(false), "Hủy trực tuyến dưới 2 giờ trước giờ khám phải bị từ chối theo SRS UC-04");
+        try { AppointmentSafety.requireOnlineCancellationWindow(true); require(true,"Hủy trực tuyến trước 2 giờ được chấp nhận"); } catch (Exception ex) { throw new AssertionError("Hủy trước 2 giờ phải được chấp thuận", ex); }
+        passedIfThrows(() -> AppointmentSafety.requireAppointmentCancelableStatus("IN_CONSULTATION"), "Lịch đang khám không được phép hủy");
+        passedIfThrows(() -> AppointmentSafety.requireAppointmentCancelableStatus("COMPLETED"), "Lịch đã hoàn tất không được phép hủy");
+        try { AppointmentSafety.requireAppointmentCancelableStatus("BOOKED"); require(true,"Lịch BOOKED được phép hủy"); } catch (Exception ex) { throw new AssertionError("Lịch BOOKED phải được hủy", ex); }
+        try { AppointmentSafety.requireAppointmentCancelableStatus("NEEDS_PROCESSING"); require(true,"Lịch NEEDS_PROCESSING được phép hủy tại quầy"); } catch (Exception ex) { throw new AssertionError("Lịch NEEDS_PROCESSING phải được hủy", ex); }
         System.out.println("PASS: " + checks + " kiểm tra validation, phân quyền, CSRF, AccessCode, GET chỉ đọc và bảo vệ transaction");
     }
     private static void passedIfThrows(CheckedAction action,String message){try{action.run();throw new AssertionError(message);}catch(java.sql.SQLException expected){checks++;}}

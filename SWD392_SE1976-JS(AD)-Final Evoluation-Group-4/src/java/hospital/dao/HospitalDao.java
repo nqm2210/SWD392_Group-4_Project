@@ -179,6 +179,24 @@ public class HospitalDao {
         return orders;
     }
 
+    public List<ServiceOrderSummary> findServiceOrdersForAppointment(int appointmentId, int doctorUserId) throws SQLException {
+        String sql="SELECT o.OrderId,o.OrderNumber,p.FullName,a.AppointmentNumber,du.FullName,dep.DepartmentName,svc.ServiceName,o.Priority,o.ClinicalInstructions,o.Status,r.Findings,r.ResultDetails,r.Status,o.OrderedAt "
+                +"FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId JOIN Appointments a ON a.AppointmentId=mr.AppointmentId JOIN Patients p ON p.PatientId=mr.PatientId JOIN Doctors d ON d.DoctorId=mr.DoctorId JOIN Users du ON du.UserId=d.UserId LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId JOIN MedicalServices svc ON svc.ServiceId=o.ServiceId LEFT JOIN MedicalServiceResults r ON r.OrderId=o.OrderId "
+                +"WHERE a.AppointmentId=? AND d.UserId=? ORDER BY o.OrderedAt ASC, o.OrderId ASC";
+        List<ServiceOrderSummary> orders=new ArrayList<>();
+        try(Connection c=connectionProvider.open();PreparedStatement s=c.prepareStatement(sql)){
+            s.setInt(1,appointmentId);
+            s.setInt(2,doctorUserId);
+            try(ResultSet r=s.executeQuery()){
+                while(r.next()){
+                    Timestamp ordered=r.getTimestamp(14);
+                    orders.add(new ServiceOrderSummary(r.getInt(1),r.getString(2),r.getString(3),r.getString(4),r.getString(5),r.getString(6),r.getString(7),r.getString(8),r.getString(9),r.getString(10),r.getString(11),r.getString(12),r.getString(13),ordered==null?null:ordered.toLocalDateTime()));
+                }
+            }
+        }
+        return orders;
+    }
+
     public void saveServiceResult(int orderId,int staffUserId,String findings,String details,boolean release)throws SQLException{
         try(Connection c=Database.connect()){
             c.setAutoCommit(false);c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
@@ -375,6 +393,48 @@ public class HospitalDao {
         }
     }
 
+    public void cancelAppointmentByReceptionist(int appointmentId,int receptionistUserId,String cancellationReason)throws SQLException{
+        if(cancellationReason==null||cancellationReason.trim().isEmpty()||cancellationReason.trim().length()>255){
+            throw new SQLException("Lý do hủy là bắt buộc và tối đa 255 ký tự.");
+        }
+        try(Connection c=Database.connect()){
+            c.setAutoCommit(false);c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
+            try{
+                String status;int slotId;
+                String lock="SELECT Status,SlotId FROM Appointments WITH (UPDLOCK,HOLDLOCK) WHERE AppointmentId=?";
+                try(PreparedStatement s=c.prepareStatement(lock)){
+                    s.setInt(1,appointmentId);
+                    try(ResultSet r=s.executeQuery()){
+                        if(!r.next())throw new SQLException("Không tìm thấy lịch hẹn.");
+                        status=r.getString(1);slotId=r.getInt(2);
+                    }
+                }
+                if(!"BOOKED".equalsIgnoreCase(status)&&!"NEEDS_PROCESSING".equalsIgnoreCase(status)){
+                    throw new SQLException("Chỉ hủy được lịch hẹn đang ở trạng thái Đã đặt hoặc Cần xử lý.");
+                }
+                String update="UPDATE Appointments SET Status='CANCELLED',CancellationReason=?,CancelledAt=GETDATE() WHERE AppointmentId=? AND Status IN('BOOKED','NEEDS_PROCESSING')";
+                try(PreparedStatement s=c.prepareStatement(update)){
+                    s.setNString(1,cancellationReason.trim());
+                    s.setInt(2,appointmentId);
+                    if(s.executeUpdate()!=1)throw new SQLException("Lịch hẹn vừa được xử lý bởi người khác.");
+                }
+                String freeSlot="UPDATE ScheduleSlots SET IsBooked=0 WHERE SlotId=? AND NOT EXISTS(SELECT 1 FROM Appointments WHERE SlotId=? AND AppointmentId<>? AND Status IN('BOOKED','CHECKED_IN','IN_CONSULTATION'))";
+                try(PreparedStatement s=c.prepareStatement(freeSlot)){
+                    s.setInt(1,slotId);s.setInt(2,slotId);s.setInt(3,appointmentId);s.executeUpdate();
+                }
+                String audit="INSERT INTO SystemLogs(UserId,Action,EntityName,RecordId,Details,Reason) VALUES(?,?,?,?,?,?)";
+                try(PreparedStatement s=c.prepareStatement(audit)){
+                    s.setInt(1,receptionistUserId);s.setString(2,"RECEPTION_CANCEL_APPOINTMENT");s.setString(3,"Appointments");
+                    s.setString(4,String.valueOf(appointmentId));
+                    s.setNString(5,"Old: Status="+status+" | New: Status=CANCELLED; Reason="+cancellationReason.trim());
+                    s.setNString(6,"Receptionist cancelled appointment");
+                    s.executeUpdate();
+                }
+                c.commit();
+            }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
+        }
+    }
+
     public void publishDoctorSchedule(int doctorUserId,LocalDate date,String shift)throws SQLException{
         if(date==null||date.isBefore(LocalDate.now())||date.isAfter(LocalDate.now().plusYears(1)))throw new SQLException("Ngày làm việc phải từ hôm nay đến trong vòng một năm.");
         if(!"AM".equals(shift)&&!"PM".equals(shift))throw new SQLException("Ca khám không hợp lệ.");
@@ -508,7 +568,7 @@ public class HospitalDao {
     }
 
     public List<AppointmentChange> findPatientAppointmentChanges(int patientId)throws SQLException{
-        String sql="SELECT l.LogId,a.AppointmentNumber,l.Action,l.Details,l.CreatedAt FROM SystemLogs l JOIN Appointments a ON l.RecordId=CONVERT(varchar(50),a.AppointmentId) WHERE a.PatientId=? AND l.EntityName='Appointments' AND l.Action IN('PATIENT_UPDATE_REASON','PATIENT_RESCHEDULE') ORDER BY l.CreatedAt DESC,l.LogId DESC";
+        String sql="SELECT l.LogId,a.AppointmentNumber,l.Action,l.Details,l.CreatedAt FROM SystemLogs l JOIN Appointments a ON l.RecordId=CONVERT(varchar(50),a.AppointmentId) WHERE a.PatientId=? AND l.EntityName='Appointments' AND l.Action IN('PATIENT_UPDATE_REASON','PATIENT_RESCHEDULE','PATIENT_CANCEL','RECEPTIONIST_CANCEL') ORDER BY l.CreatedAt DESC,l.LogId DESC";
         List<AppointmentChange> changes=new ArrayList<>();
         try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql)){
             s.setInt(1,patientId);try(ResultSet r=s.executeQuery()){while(r.next()){Timestamp changed=r.getTimestamp(5);changes.add(new AppointmentChange(r.getInt(1),r.getString(2),r.getString(3),r.getString(4),changed==null?null:changed.toLocalDateTime()));}}
@@ -549,6 +609,41 @@ public class HospitalDao {
                 try(PreparedStatement s=c.prepareStatement("UPDATE ScheduleSlots SET IsBooked=0 WHERE SlotId=? AND NOT EXISTS(SELECT 1 FROM Appointments WHERE SlotId=? AND AppointmentId<>?)")){s.setInt(1,oldSlotId);s.setInt(2,oldSlotId);s.setInt(3,appointmentId);s.executeUpdate();}
                 String details="Ngày cũ="+oldDate+"; Bác sĩ cũ="+oldDoctorName+"; Giờ cũ="+oldStart+"–"+oldEnd+" | Ngày mới="+requestedDate+"; Bác sĩ mới="+newDoctorName+"; Giờ mới="+newStart+"–"+newEnd;
                 auditPatientAppointment(c,appointmentId,"PATIENT_RESCHEDULE",details);c.commit();
+            }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
+        }
+    }
+
+    public void cancelPatientAppointment(int patientId,int appointmentId,String cancellationReason)throws SQLException{
+        if(cancellationReason==null||cancellationReason.trim().isEmpty()||cancellationReason.trim().length()>255){
+            throw new SQLException("Lý do hủy là bắt buộc và tối đa 255 ký tự.");
+        }
+        try(Connection c=Database.connect()){
+            c.setAutoCommit(false);c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
+            try{
+                int oldSlotId;String status;boolean cancelableBefore2Hours;
+                String startExpr="DATEADD(SECOND,DATEDIFF(SECOND,CONVERT(time,'00:00:00'),ss.StartTime),CONVERT(datetime,a.AppointmentDate))";
+                String lock="SELECT a.SlotId,a.Status,CASE WHEN DATEADD(HOUR,2,GETDATE())<"+startExpr+" THEN 1 ELSE 0 END FROM Appointments a WITH (UPDLOCK,HOLDLOCK) JOIN ScheduleSlots ss ON ss.SlotId=a.SlotId WHERE a.AppointmentId=? AND a.PatientId=?";
+                try(PreparedStatement s=c.prepareStatement(lock)){
+                    s.setInt(1,appointmentId);s.setInt(2,patientId);
+                    try(ResultSet r=s.executeQuery()){
+                        if(!r.next())throw new SQLException("Không tìm thấy lịch hẹn thuộc hồ sơ đã xác minh.");
+                        oldSlotId=r.getInt(1);status=r.getString(2);cancelableBefore2Hours=r.getBoolean(3);
+                    }
+                }
+                if(!"BOOKED".equalsIgnoreCase(status)||!cancelableBefore2Hours){
+                    throw new SQLException("Thời gian hủy trực tuyến đã hết (phải trước giờ khám ít nhất 2 giờ). Vui lòng liên hệ tổng đài phòng khám qua hotline để được hỗ trợ.");
+                }
+                try(PreparedStatement s=c.prepareStatement("UPDATE Appointments SET Status='CANCELLED',CancellationReason=?,CancelledAt=GETDATE() WHERE AppointmentId=? AND PatientId=? AND Status='BOOKED'")){
+                    s.setNString(1,cancellationReason.trim());
+                    s.setInt(2,appointmentId);
+                    s.setInt(3,patientId);
+                    if(s.executeUpdate()!=1)throw new SQLException("Lịch hẹn vừa được xử lý và không thể hủy.");
+                }
+                try(PreparedStatement s=c.prepareStatement("UPDATE ScheduleSlots SET IsBooked=0 WHERE SlotId=? AND NOT EXISTS(SELECT 1 FROM Appointments WHERE SlotId=? AND AppointmentId<>? AND Status IN('BOOKED','CHECKED_IN','IN_CONSULTATION'))")){
+                    s.setInt(1,oldSlotId);s.setInt(2,oldSlotId);s.setInt(3,appointmentId);s.executeUpdate();
+                }
+                auditPatientAppointment(c,appointmentId,"PATIENT_CANCEL","CancellationReason="+cancellationReason.trim());
+                c.commit();
             }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
         }
     }
@@ -601,22 +696,110 @@ public class HospitalDao {
         return departments;
     }
 
+    public List<DoctorProfile> findStaffAccounts() throws SQLException {
+        String sql="SELECT u.UserId,u.Username,u.FullName,u.Email,ISNULL(u.Phone,''),ISNULL(u.DepartmentId,0),"
+                +"ISNULL(dep.DepartmentName,N'Toàn viện / Quầy tiếp nhận'),r.RoleName,ISNULL(u.IsActive,1) "
+                +"FROM Users u JOIN Roles r ON r.RoleId=u.RoleId LEFT JOIN Departments dep ON dep.DepartmentId=u.DepartmentId "
+                +"WHERE r.RoleName IN(N'Receptionist',N'MedicalStaff') ORDER BY r.RoleName,u.FullName";
+        List<DoctorProfile> staffAccounts=new ArrayList<>();
+        try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql);ResultSet r=s.executeQuery()){
+            while(r.next()){
+                int userId=r.getInt(1);
+                String roleName=r.getString(8);
+                boolean active=r.getBoolean(9);
+                staffAccounts.add(new DoctorProfile(0,userId,r.getString(2),r.getString(3),r.getString(4),r.getString(5),
+                        r.getInt(6),r.getString(7),roleName,"Receptionist".equals(roleName)?"Lễ tân":"Nhân viên y tế","",
+                        java.math.BigDecimal.ZERO,active?"Available":"Unavailable",active));
+            }
+        }
+        return staffAccounts;
+    }
+
     public void updateDoctorProfile(int doctorId,String fullName,String email,String phone,int departmentId,String specialization,
             String academicTitle,String roomNumber,java.math.BigDecimal fee,String status,boolean published)throws SQLException{
+        updateDoctorProfile(doctorId,null,null,fullName,email,phone,departmentId,specialization,academicTitle,roomNumber,fee,status,published,0);
+    }
+
+    public void updateDoctorProfile(int doctorId,String fullName,String email,String phone,int departmentId,String specialization,
+            String academicTitle,String roomNumber,java.math.BigDecimal fee,String status,boolean published,int managerUserId)throws SQLException{
+        updateDoctorProfile(doctorId,null,null,fullName,email,phone,departmentId,specialization,academicTitle,roomNumber,fee,status,published,managerUserId);
+    }
+
+    public void updateDoctorProfile(int doctorId,String username,String newPassword,String fullName,String email,String phone,
+            int departmentId,String specialization,String academicTitle,String roomNumber,java.math.BigDecimal fee,
+            String status,boolean published,int managerUserId)throws SQLException{
+        String passwordHash=newPassword==null||newPassword.trim().isEmpty()?null:PasswordHasher.hash(newPassword.trim());
         try(Connection c=Database.connect()){
+            c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
             c.setAutoCommit(false);
             try{
-                int userId;
-                String find="SELECT d.UserId FROM Doctors d JOIN Users u ON u.UserId=d.UserId JOIN Roles r ON r.RoleId=u.RoleId WHERE d.DoctorId=? AND r.RoleName=N'Doctor'";
-                try(PreparedStatement s=c.prepareStatement(find)){s.setInt(1,doctorId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Không tìm thấy hồ sơ bác sĩ.");userId=r.getInt(1);}}
-                String updateUser="UPDATE Users SET FullName=?,Email=?,Phone=?,DepartmentId=? WHERE UserId=?";
-                try(PreparedStatement s=c.prepareStatement(updateUser)){s.setNString(1,fullName.trim());s.setString(2,email.trim());s.setString(3,phone.trim());s.setInt(4,departmentId);s.setInt(5,userId);if(s.executeUpdate()!=1)throw new SQLException("Không cập nhật được thông tin tài khoản bác sĩ.");}
+                int userId;String currentUsername;
+                String find="SELECT d.UserId,u.Username FROM Doctors d WITH (UPDLOCK, HOLDLOCK) JOIN Users u WITH (UPDLOCK, HOLDLOCK) ON u.UserId=d.UserId JOIN Roles r ON r.RoleId=u.RoleId WHERE d.DoctorId=? AND r.RoleName=N'Doctor'";
+                try(PreparedStatement s=c.prepareStatement(find)){s.setInt(1,doctorId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Không tìm thấy hồ sơ bác sĩ.");userId=r.getInt(1);currentUsername=r.getString(2);}}
+                String updatedUsername=username==null||username.isBlank()?currentUsername:username.trim();
+                String checkUsername="SELECT UserId FROM Users WITH (UPDLOCK, HOLDLOCK) WHERE Username=? AND UserId<>?";
+                try(PreparedStatement s=c.prepareStatement(checkUsername)){s.setString(1,updatedUsername);s.setInt(2,userId);try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("STAFF_USERNAME_EXISTS");}}
+                String checkEmail="SELECT UserId FROM Users WITH (UPDLOCK, HOLDLOCK) WHERE Email=? AND UserId<>?";
+                try(PreparedStatement s=c.prepareStatement(checkEmail)){s.setString(1,email.trim());s.setInt(2,userId);try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("DOCTOR_EMAIL_EXISTS");}}
+                String updateUser=passwordHash==null
+                        ?"UPDATE Users SET Username=?,FullName=?,Email=?,Phone=?,DepartmentId=? WHERE UserId=?"
+                        :"UPDATE Users SET Username=?,PasswordHash=?,FullName=?,Email=?,Phone=?,DepartmentId=? WHERE UserId=?";
+                try(PreparedStatement s=c.prepareStatement(updateUser)){
+                    int i=1;s.setString(i++,updatedUsername);if(passwordHash!=null)s.setString(i++,passwordHash);
+                    s.setNString(i++,fullName.trim());s.setString(i++,email.trim());s.setString(i++,phone.trim());
+                    s.setInt(i++,departmentId);s.setInt(i,userId);
+                    if(s.executeUpdate()!=1)throw new SQLException("Không cập nhật được thông tin tài khoản bác sĩ.");
+                }
                 String updateDoctor="UPDATE Doctors SET DepartmentId=?,Specialization=?,AcademicTitle=?,RoomNumber=?,ConsultationFee=?,Status=?,IsPublished=? WHERE DoctorId=? AND UserId=?";
                 try(PreparedStatement s=c.prepareStatement(updateDoctor)){
                     s.setInt(1,departmentId);s.setNString(2,specialization.trim());
                     if(academicTitle==null||academicTitle.isBlank())s.setNull(3,Types.NVARCHAR);else s.setNString(3,academicTitle.trim());
                     s.setString(4,roomNumber.trim());s.setBigDecimal(5,fee);s.setNString(6,status);s.setBoolean(7,published);s.setInt(8,doctorId);s.setInt(9,userId);
                     if(s.executeUpdate()!=1)throw new SQLException("Không cập nhật được hồ sơ chuyên môn.");
+                }
+                if(managerUserId>0){
+                    String audit="INSERT INTO SystemLogs(UserId,Action,EntityName,RecordId,Details,Reason) VALUES(?,?,?,?,?,?)";
+                    try(PreparedStatement s=c.prepareStatement(audit)){
+                        s.setInt(1,managerUserId);s.setString(2,"UPDATE");s.setString(3,"Doctors");s.setString(4,String.valueOf(doctorId));
+                        s.setNString(5,"Username="+updatedUsername+"; FullName="+fullName.trim()+"; Email="+email.trim()+"; DeptId="+departmentId+"; Specialization="+specialization.trim()+"; Fee="+fee+"; Status="+status+"; Published="+published+"; PasswordChanged="+(passwordHash!=null));
+                        s.setNString(6,"Manager updated doctor profile");
+                        s.executeUpdate();
+                    }
+                }
+                c.commit();
+            }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
+        }
+    }
+
+    public void updateStaffAccount(int userId,String username,String newPassword,String fullName,String email,String phone,
+            Integer departmentId,boolean active,int managerUserId)throws SQLException{
+        String updatedUsername=username==null?"":username.trim();
+        String passwordHash=newPassword==null||newPassword.trim().isEmpty()?null:PasswordHasher.hash(newPassword.trim());
+        try(Connection c=Database.connect()){
+            c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
+            c.setAutoCommit(false);
+            try{
+                String lock="SELECT u.UserId FROM Users u WITH (UPDLOCK,HOLDLOCK) JOIN Roles r WITH (UPDLOCK,HOLDLOCK) ON r.RoleId=u.RoleId WHERE u.UserId=? AND r.RoleName IN(N'Receptionist',N'MedicalStaff')";
+                try(PreparedStatement s=c.prepareStatement(lock)){s.setInt(1,userId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("STAFF_NOT_FOUND");}}
+                String checkUsername="SELECT UserId FROM Users WITH (UPDLOCK,HOLDLOCK) WHERE Username=? AND UserId<>?";
+                try(PreparedStatement s=c.prepareStatement(checkUsername)){s.setString(1,updatedUsername);s.setInt(2,userId);try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("STAFF_USERNAME_EXISTS");}}
+                String checkEmail="SELECT UserId FROM Users WITH (UPDLOCK,HOLDLOCK) WHERE Email=? AND UserId<>?";
+                try(PreparedStatement s=c.prepareStatement(checkEmail)){s.setString(1,email.trim());s.setInt(2,userId);try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("STAFF_EMAIL_EXISTS");}}
+                String update=passwordHash==null
+                        ?"UPDATE Users SET Username=?,FullName=?,Email=?,Phone=?,DepartmentId=?,IsActive=? WHERE UserId=?"
+                        :"UPDATE Users SET Username=?,PasswordHash=?,FullName=?,Email=?,Phone=?,DepartmentId=?,IsActive=? WHERE UserId=?";
+                try(PreparedStatement s=c.prepareStatement(update)){
+                    int i=1;s.setString(i++,updatedUsername);if(passwordHash!=null)s.setString(i++,passwordHash);
+                    s.setNString(i++,fullName.trim());s.setString(i++,email.trim());s.setString(i++,phone.trim());
+                    if(departmentId==null||departmentId<=0)s.setNull(i++,Types.INTEGER);else s.setInt(i++,departmentId);
+                    s.setBoolean(i++,active);s.setInt(i,userId);
+                    if(s.executeUpdate()!=1)throw new SQLException("Không cập nhật được tài khoản nhân viên.");
+                }
+                String audit="INSERT INTO SystemLogs(UserId,Action,EntityName,RecordId,Details,Reason) VALUES(?,?,?,?,?,?)";
+                try(PreparedStatement s=c.prepareStatement(audit)){
+                    s.setInt(1,managerUserId);s.setString(2,"UPDATE");s.setString(3,"Users");s.setString(4,String.valueOf(userId));
+                    s.setNString(5,"Username="+updatedUsername+"; FullName="+fullName.trim()+"; Email="+email.trim()+"; Active="+active+"; PasswordChanged="+(passwordHash!=null));
+                    s.setNString(6,"Manager updated staff account");s.executeUpdate();
                 }
                 c.commit();
             }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}

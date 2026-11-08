@@ -38,6 +38,8 @@ public class PatientPortalServlet extends HttpServlet {
             res.sendRedirect(req.getContextPath() + "/patient");
         } else if ("updateAppointment".equals(action)) {
             updateAppointment(req, res);
+        } else if ("cancelAppointment".equals(action)) {
+            cancelAppointment(req, res);
         } else {
             res.sendError(HttpServletResponse.SC_BAD_REQUEST, "Thao tác không hợp lệ.");
         }
@@ -121,11 +123,45 @@ public class PatientPortalServlet extends HttpServlet {
         }
     }
 
+    private void cancelAppointment(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+        HttpSession session = req.getSession(false);
+        Integer patientId = session == null ? null : (Integer) session.getAttribute("verifiedPatientId");
+        if (patientId == null) {
+            res.sendError(HttpServletResponse.SC_FORBIDDEN, "Hãy xác minh hồ sơ bệnh nhân trước.");
+            return;
+        }
+        Integer appointmentId = hospital.validation.DoctorProfileValidator.positiveInteger(req.getParameter("appointmentId"));
+        String reason = value(req, "cancellationReason");
+        if (appointmentId == null) {
+            req.setAttribute("cancelError", "Mã lịch hẹn không hợp lệ.");
+            render(req, res);
+            return;
+        }
+        if (reason.isBlank() || reason.length() > 255) {
+            req.setAttribute("cancelAppointmentId", appointmentId.toString());
+            req.setAttribute("cancelError", "Lý do hủy là bắt buộc, tối đa 255 ký tự.");
+            render(req, res);
+            return;
+        }
+        try {
+            dao.cancelPatientAppointment(patientId, appointmentId, reason);
+            session.setAttribute("patientAppointmentCancelledOnce", Boolean.TRUE);
+            res.sendRedirect(req.getContextPath() + "/patient");
+        } catch (SQLException ex) {
+            getServletContext().log("Không thể hủy lịch hẹn tự phục vụ.", ex);
+            req.setAttribute("cancelAppointmentId", appointmentId.toString());
+            req.setAttribute("cancelError", ex.getMessage() != null ? ex.getMessage() : "Không thể hủy lịch hẹn.");
+            render(req, res);
+        }
+    }
+
     private void render(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         HttpSession session = req.getSession(true);
         req.setAttribute("csrfToken", CsrfToken.getOrCreate(session));
         req.setAttribute("updated", Boolean.TRUE.equals(session.getAttribute("patientAppointmentUpdatedOnce")));
         session.removeAttribute("patientAppointmentUpdatedOnce");
+        req.setAttribute("cancelled", Boolean.TRUE.equals(session.getAttribute("patientAppointmentCancelledOnce")));
+        session.removeAttribute("patientAppointmentCancelledOnce");
         Integer patientId = (Integer) session.getAttribute("verifiedPatientId");
         if (patientId != null) {
             try {

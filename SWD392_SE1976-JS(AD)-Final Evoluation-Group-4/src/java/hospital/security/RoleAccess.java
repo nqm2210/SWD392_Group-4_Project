@@ -2,7 +2,7 @@ package hospital.security;
 import java.util.*;
 public final class RoleAccess {
     private static final Map<String,List<String>> MENUS=Map.of(
-        "Manager",List.of("Tổng quan","Duyệt đơn nghỉ","Quản lý bác sĩ","Dịch vụ và giá","Danh mục thuốc","Báo cáo hoạt động","Báo cáo doanh thu","Phản hồi"),
+        "Manager",List.of("Tổng quan","Duyệt đơn nghỉ","Quản lý nhân sự","Dịch vụ và giá","Danh mục thuốc","Báo cáo hoạt động","Báo cáo doanh thu","Phản hồi"),
         "Doctor",List.of("Tổng quan","Lịch làm việc","Yêu cầu nghỉ","Danh sách bệnh nhân","Khám bệnh","Đơn thuốc","Chỉ định xét nghiệm"),
         "Receptionist",List.of("Tổng quan","Danh sách lịch hẹn","Đăng ký bệnh nhân","Check-in","Quản lý hàng đợi","Đơn nghỉ của tôi","Thanh toán tại quầy"),
         "MedicalStaff",List.of("Tổng quan","Chỉ định dịch vụ","Thông tin bệnh nhân","Thực hiện dịch vụ","Nhập kết quả","Lịch sử dịch vụ","Đơn nghỉ của tôi"));

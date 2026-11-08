@@ -1,6 +1,7 @@
 # Báo cáo rà soát và sửa lỗi
 
-Ngày: 08/11/2026  
+Cập nhật: 09/11/2026
+
 Project: `SWD392_SE1976-JS(AD)-Final Evoluation-Group-4`
 
 ## Tóm tắt
@@ -11,19 +12,43 @@ Các sửa lỗi chính: biên dịch JSP bằng Jasper; lọc trạng thái l�
 
 ## Đã sửa và cách hoạt động
 
-### Lỗi 500 và kiểm chứng JSP
+### Lỗi 500, bảo mật XSS và kiểm chứng JSP
 
 - Các JSP Doctor, Receptionist và MedicalStaff dùng `switch` dạng statement tương thích source của Jasper, không dùng switch expression Java 14+.
+- Đã khắc phục triệt để `ClassCastException` tại `reception-content.jsp` (ép kiểu an toàn `String.valueOf(request.getAttribute("queueNumber"))` thay vì `(String)`).
+- Bổ sung hàm HTML escaping (`escDoctor`, `escStaff`, `escReception`, `escMedical`) cho toàn bộ thông báo `actionError`, `savedMessage`, `dateError`, `loadError` trên tất cả các JSP, triệt tiêu nguy cơ Reflected XSS.
 - `ReceptionServlet` chuẩn hóa status null/rỗng trước khi kiểm tra danh sách trạng thái; các trang lịch hẹn, check-in và hàng đợi không còn gọi `Set.of(...).contains(null)`.
 - Target `jsp-check` trong `build.xml` biên dịch JSP với Tomcat Jasper ở source/target 1.8. Target chỉ pass nếu Jasper báo chính xác `Generation completed with [0] errors`; nếu JSP lỗi, Ant fail thay vì chỉ in log lỗi nhưng vẫn báo thành công.
-- Log hiện có vẫn chứa stack trace cũ (03:50–03:52) của lỗi switch expression và NPE trước sửa. File log không được xóa. Sau sửa, Jasper precompile toàn bộ JSP báo 0 lỗi.
+- Jasper precompile toàn bộ 100% JSP đạt chuẩn 0 lỗi.
 
-### Doctor, chỉ định, hoàn tất lượt khám và bill
+### Doctor, chỉ định, xem hồ sơ hoàn tất và bill
 
 - Luồng chỉ định dịch vụ yêu cầu đã lưu chẩn đoán sơ bộ và hồ sơ đang `IN_PROGRESS`; kiểm tra bác sĩ sở hữu lượt khám và dịch vụ còn hoạt động.
+- Giữ lại đầy đủ các trường nhập liệu (`catalogId`, `priority`, `clinicalInstructions`) khi tạo chỉ định dịch vụ bị lỗi để bác sĩ không phải nhập lại.
+- Tự động nạp đồng thời `prescriptionLines` và `appointmentServiceOrders` khi bác sĩ chọn bất kỳ lượt khám nào.
+- Bổ sung nút "Xem hồ sơ" cho các ca khám đã `COMPLETED` tại các tab của Bác sĩ (`consultation`, `patients`, `prescriptions`, `lab-orders`). Khi mở hồ sơ đã hoàn tất, giao diện hiển thị hộp thông tin chỉ đọc (chẩn đoán, ghi chú lâm sàng, hướng điều trị) kèm bảng đơn thuốc và bảng chỉ định/kết quả dịch vụ đã thực hiện.
 - Không hoàn tất hồ sơ khi còn MedicalServiceOrder chưa `COMPLETED` hoặc kết quả chưa `RELEASED`.
 - Hoàn tất MedicalRecord, cập nhật Appointment, tạo Bill trạng thái `UNPAID` (phí khám + dịch vụ đã hoàn tất/phát hành) và audit nằm trong cùng transaction.
-- Bác sĩ vẫn có chức năng đơn thuốc, danh sách lượt khám và gửi đơn nghỉ theo menu/role hiện có.
+
+### Danh mục thuốc, dịch vụ và an toàn thông tin bác sĩ
+
+- Thuốc và dịch vụ y tế là hai danh mục khác nhau. Manager thêm/sửa/kích hoạt thuốc ở “Danh mục thuốc” qua bảng `Medicines`; form “Dịch vụ và giá” chỉ dành cho dịch vụ y tế. Không chèn thuốc mẫu.
+- Chuẩn hóa validation hồ sơ bác sĩ (`DoctorProfileValidator`): giới hạn độ dài `fullName` (<= 100 ký tự), `specialization` (<= 100), `academicTitle` (<= 50) và chuẩn hóa regex phí khám `(?:0|[1-9][0-9]{0,15})(?:\.[0-9]{1,2})?` chặn số mũ (1E5) và từ chối 17 chữ số nguyên để tương thích chặt chẽ với kiểu `DECIMAL(18,2)`.
+- Cập nhật `HospitalDao.updateDoctorProfile`: áp dụng mức cô lập `TRANSACTION_SERIALIZABLE` kèm khóa `WITH (UPDLOCK, HOLDLOCK)`, kiểm tra chống trùng lặp email bác sĩ với người dùng khác và ghi nhận lịch sử vào `SystemLogs`.
+- Giao diện Manager (`staff-content.jsp`, `services-content.jsp`, `medicines-content.jsp`): giữ trạng thái mở `<details open>` khi có lỗi validation và cô lập phạm vi hiển thị lỗi (`activeErrors`) đúng theo dòng dữ liệu đang sửa.
+
+### Nhân viên y tế (Medical Staff) và lịch sử chỉ định
+
+- Tab `service-history` được lọc chính xác chỉ hiển thị các chỉ định đã kết thúc (`COMPLETED` hoặc `CANCELLED`).
+- Bổ sung nút "Xem kết quả" và panel tra cứu chi tiết chỉ định cận lâm sàng ở chế độ chỉ đọc: hiển thị chỉ định lâm sàng của bác sĩ, kết luận xét nghiệm, chi tiết kỹ thuật và thời điểm phát hành.
+
+### Hủy lịch hẹn và kiểm soát Race Condition
+
+- Bổ sung phương thức `cancelAppointmentByReceptionist` và `cancelPatientAppointment` trong `HospitalDao`: kiểm tra trạng thái hợp lệ (`BOOKED` / `CHECKED_IN`), hủy lịch, giải phóng slot (`ScheduleSlots.IsBooked = 0`) an toàn có đối chiếu không còn cuộc hẹn nào khác chiếm giữ slot, đồng thời ghi audit log.
+- Lễ tân: Thêm thao tác "Hủy lịch" có hộp thoại xác nhận tại tab danh sách lịch hẹn (`reception-content.jsp` và `ReceptionServlet.java`).
+- Bệnh nhân: Thêm chức năng hủy lịch hẹn trực tiếp trên Cổng bệnh nhân (`patient.jsp` và `PatientPortalServlet.java`), cô lập lỗi theo từng thẻ lịch hẹn.
+- Chống Race Condition khi tải slot: Chuyển đổi cơ chế fetch khung giờ khám trong `patient.jsp` và `registration-content.jsp` sang kỹ thuật `AbortController` và `requestVersion`, ngăn triệt để ghi đè dữ liệu khi người dùng chuyển ngày/ca liên tục.
+- Thêm ràng buộc `max="<%=LocalDate.now()%>"` cho ngày sinh tại trang đăng ký tại quầy (`registration-content.jsp`).
 
 ### Danh mục thuốc và đơn thuốc
 
@@ -62,7 +87,7 @@ Các sửa lỗi chính: biên dịch JSP bằng Jasper; lọc trạng thái l�
 
 - Điều tra thấy tài nguyên JavaScript từng được Tomcat phục vụ không khớp bản trong workspace; sau deploy, response thiếu `charset=UTF-8`. `EncodingFilter` hiện đặt UTF-8 cho cả tài nguyên tĩnh và trang động; URL script có version `?v=2` để tránh cache bản cũ.
 - Sau deploy, HTTP `/assets/app.js?v=2` trả `text/javascript;charset=UTF-8`; bytes HTTP khớp SHA-256/nội dung với file workspace và các chuỗi giao diện được giải mã đúng tiếng Việt.
-- Kiểm tra chỉ đọc DB tại `http://localhost:8080/HospitalManagement/slots?doctorId=1&date=2026-11-09&shift=AM`: 8 slot, `AVAILABLE`. Ca `PM`: 0 slot, `NOT_PUBLISHED`. Trên trình duyệt, ca sáng nạp 8 thời điểm; ca chiều khóa lựa chọn và hiện “Bác sĩ chưa công bố lịch cho ngày và ca này...”. Không tự tạo lịch hoặc giờ.
+- Kiểm tra runtime mới nhất sau deploy ngày 08/11/2026: GET `http://localhost:8080/HospitalManagement/slots?doctorId=1&date=2026-11-09&shift=AM` trả 7 slot, `AVAILABLE`; ca `PM` trả danh sách rỗng (`NOT_PUBLISHED`). Số slot hiện tại khác lần kiểm tra trước (8), phản ánh dữ liệu đang có trong DB; không tạo lịch hoặc giờ.
 - Ảnh người dùng gửi có ngày sinh 09/11/2026 (sau ngày kiểm tra 08/11/2026) và chọn ca chiều không có lịch công bố; cả hai điều kiện đều khiến không thể đặt. POST kiểm tra với ngày sinh tương lai, số điện thoại sai và thiếu slot trả lỗi từng trường, giữ lại nội dung nhập, và dừng trước khi gọi DAO. Không gửi POST hợp lệ nên chưa chứng minh ghi lịch hẹn thành công trên DB.
 - Nếu số điện thoại đã thuộc hồ sơ khác, booking công khai bị từ chối có chủ đích; chỉ Receptionist được tái sử dụng hồ sơ sau khi xác minh. Không nới lỏng kiểm tra này để “làm cho đặt được”.
 
@@ -88,33 +113,44 @@ Các sửa lỗi chính: biên dịch JSP bằng Jasper; lọc trạng thái l�
 
 ## Bằng chứng build và runtime
 
-- Chạy `ant clean test war jsp-check deploy`: `BUILD SUCCESSFUL`; 55 kiểm tra trong TestSuite pass; Jasper target báo “Tomcat Jasper compiled all JSPs with zero errors”; WAR đã deploy vào Tomcat.
+- Kiểm tra lại ngày 09/11/2026: `ant test` và `ant war jsp-check` đều `BUILD SUCCESSFUL`, 61 kiểm tra pass, Jasper báo toàn bộ JSP biên dịch không lỗi. JSP/CSS được cập nhật trong lúc rà soát nên đã chạy lại Jasper và tải trang mới trước khi kết luận. Đối chiếu 19 file trong `web` với bản Tomcat đang triển khai không có khác biệt ở thời điểm chốt.
+- Lần chạy sạch mới nhất ngày 08/11/2026: `ant clean test war jsp-check deploy` trả `BUILD SUCCESSFUL`; TestSuite pass 61 kiểm tra; biên dịch 58 source Java; Jasper báo “Tomcat Jasper compiled all JSPs with zero errors”; WAR được chép vào Tomcat.
 - Chạy target compile NetBeans sinh sẵn: `ant -f nbproject/build-impl.xml clean compile` thành công, biên dịch 58 source Java với classpath Servlet/JDBC từ `nbproject/project.properties`. Lượt chạy trong sandbox bị chặn đọc `servlet-api.jar` ngoài workspace; chạy lại với quyền đọc Tomcat thành công.
 - Chạy `ant deploy`: `BUILD SUCCESSFUL`, WAR được chép vào `C:\Program Files\Apache Software Foundation\Tomcat 10.1\webapps`.
-- Sau deploy: GET `/HospitalManagement/` = HTTP 200. `/assets/app.js?v=2` = HTTP 200, `text/javascript;charset=UTF-8`; bytes phản hồi khớp file nguồn và chuỗi tiếng Việt không mojibake. GET `/patient` trước đó trả HTTP 200.
-- Lần kiểm tra lại sau deploy: trang chủ và JavaScript đều HTTP 200, response JS có `charset=UTF-8`, HTML chứa tiếng Việt đúng và không có ký tự `�`; GET slot vẫn trả 8 slot ca sáng (`AVAILABLE`) và 0 slot ca chiều (`NOT_PUBLISHED`). Terminal Ant/PowerShell hiện còn hiển thị một số ký tự tiếng Việt sai mã; chưa chỉnh encoding stdout của terminal, không phải lỗi encoding quan sát được trong HTTP/trình duyệt.
-- Kiểm tra GET slot trên DB hiện tại: bác sĩ 1, 09/11/2026, ca sáng = 8 slot và `AVAILABLE`; ca chiều = 0 slot và `NOT_PUBLISHED`. Trên trình duyệt tích hợp, chọn ca sáng nạp 8 lựa chọn; ca chiều hiển thị thông báo chưa công bố lịch và vô hiệu hóa select giờ.
-- POST đặt lịch sai validation trả HTTP 200 với lỗi ngày sinh/số điện thoại/slot; tên người gửi vẫn nằm trong form. Validation xảy ra trước DAO, không có ghi DB. Không gửi POST hợp lệ.
-- Các request chưa đăng nhập tới `/dashboard?page=consultation`, `/doctor/consultation` và `/reception/payments` trả HTTP 302 về login.
-- Trình duyệt thật: trang chủ hiển thị dữ liệu bác sĩ từ DB và form; popup có focus vào tên đăng nhập, mở/đóng được bằng X và Escape. POST đăng nhập với tài khoản thử không tồn tại giữ nguyên trang chủ, mở lại popup và hiện lỗi ngay trong popup.
-- POST xác minh bệnh nhân với mã sai bị từ chối và không hiển thị lịch.
+- Sau deploy sạch: GET `/` và `/patient` trả HTTP 200 với `text/html; charset=UTF-8`; `/assets/app.js?v=2` trả HTTP 200 với `text/javascript; charset=UTF-8`. HTML/JS kiểm tra không có ký tự thay thế `�`.
+- Tìm bác sĩ theo `Bác sĩ Demo 01` trả HTTP 200 và có kết quả. Kiểm tra bằng UI ngày 09/11 với `QA_NO_SUCH_DOCTOR`: hiện sai thông báo “Chưa có bác sĩ được công khai”; dropdown Bác sĩ trong form đặt lịch cũng chỉ còn option “Chọn bác sĩ”, trong khi bỏ bộ lọc có 5 bác sĩ công khai.
+- GET slots hiện trả 7 khung giờ ca sáng (`AVAILABLE`) và `[]` cho ca chiều (`NOT_PUBLISHED`). Test helper DAO với JDBC proxy xác nhận 2 lệnh SELECT và 0 thao tác ghi khi lịch chưa công bố; GET runtime cũng chỉ đọc.
+- POST đặt lịch sai validation, có CSRF hợp lệ, trả HTTP 200; ngày sinh tương lai, điện thoại sai và thiếu slot hiện lỗi; tên nhập được giữ lại; không có thông báo thành công. Servlet kiểm tra lỗi trước lời gọi DAO; không thực hiện POST hợp lệ.
+- POST xác minh bệnh nhân bằng email `.invalid` và access code sai nhưng đúng định dạng trả HTTP 200 với lỗi xác minh chung; không hiện lịch sử hoặc thông báo thành công. Đã kiểm tra lại trực tiếp trên UI ngày 09/11.
+- Ngày 09/11: 16/16 URL nội bộ trong RoleFilter trả HTTP 302 về `/?login=required` khi chưa đăng nhập; truy cập trực tiếp `/WEB-INF/views/dashboard.jsp` trả 404. Đây là kiểm tra chưa đăng nhập, chưa thay thế kiểm tra trái role bằng phiên đã đăng nhập.
+- Đã kiểm tra trực tiếp popup: mở bằng nút Đăng nhập, focus vào username, Shift+Tab vòng trong popup, X/Escape đóng và trả focus về nút mở. Tài khoản không tồn tại hiện lỗi trong popup trên trang chủ; DAO xác thực chỉ SELECT. Trên giao diện mới nhất đã kiểm tra lại mở/Escape và focus.
+- Liên kết Thông tin bệnh nhân đi tới `/patient` trong cùng tab; browser vẫn chỉ có 1 tab. Ca sáng bác sĩ 1 ngày 09/11 nạp 7 slot; ca chiều khóa select và hiện thông báo chưa công bố lịch bằng tiếng Việt đúng. Gửi form còn thiếu thông tin/slot bị chặn tại trang hiện tại và giữ tên đã nhập. Không đặt lịch hợp lệ. Không ghi nhận console error trong tab ở lượt chốt.
 - Query giả `/?booking=success` và `/patient?updated=1` không hiển thị thông báo thành công.
-- VS Code Problems provider trong phiên này vẫn liệt kê unresolved Jakarta trên `EncodingFilter` và `DoctorWorkflowServlet` (trước đó cũng ghi nhận `LeaveServlet`/`ReceptionRegistrationServlet`), dù 58 source đã biên dịch pass với Ant/NetBeans target. Đây là sai khác classpath/model của provider trong VS Code; NetBeans Ant compile dùng được `servlet-api.jar`. Nếu NetBeans IDE vẫn báo tương tự, cần refresh server libraries.
+- Lần rà soát trước ghi nhận VS Code Problems provider báo unresolved Jakarta dù 58 source biên dịch pass với Ant/NetBeans. Lượt ngày 09/11 chưa chạy lại Problems provider; không coi cảnh báo IDE đó là kết quả runtime mới.
 - URL các trang và luồng dữ liệu role-specific chưa thể kiểm thử end-to-end do không có tài khoản test Doctor/Receptionist/Manager/MedicalStaff. Không thực hiện POST nghiệp vụ hợp lệ để tránh ghi dữ liệu thử vào database thật.
+
+## Lỗi còn cần sửa sau kiểm tra 09/11/2026
+
+1. **Tìm kiếm ảnh hưởng form đặt lịch:** `HomeServlet` dùng chung attribute `doctors` cho kết quả tìm kiếm và dropdown của form trong `home.jsp`. Khi tìm không khớp, cả lựa chọn đặt lịch biến mất và thông báo rỗng mô tả sai tình huống. Cần tách nguồn dữ liệu dropdown khỏi danh sách đã lọc, báo không tìm thấy kết quả và có cách xóa bộ lọc rõ ràng.
+2. **Validation API slot phân loại lỗi sai:** GET `/slots?doctorId=1&date=not-a-date&shift=AM` trả 503 và ghi `DateTimeParseException` vào log; `shift=NIGHT` trả 200 với `[]`. Cần kiểm tra doctorId/ngày/ca trước DAO, trả 400 cho input sai; giữ 503 cho sự cố tải dữ liệu thật. Stack trace mới ở `localhost.2026-11-09.log` lúc 00:09:08 là từ phép thử ngày sai này, không phải lỗi JSP.
+
+Lượt kiểm tra này cập nhật báo cáo/README; chưa sửa hai lỗi nghiệp vụ/giao diện nêu trên.
 
 ## Schema/config đã đọc và điểm chưa thống nhất
 
-- SQL Server dùng database `HospitalManagementDB` qua JNDI Tomcat, URL đang cấu hình `jdbc:sqlserver://localhost:51433;databaseName=HospitalManagementDB;encrypt=true;trustServerCertificate=true;loginTimeout=5`. Không đọc/in mật khẩu và không sửa file `.env.example` đính kèm. URL này khác instance `SQLEXPRESS04` trong file đính kèm; không dùng giá trị `.env.example` thay cho JNDI đang chạy.
+- SQL Server dùng database `HospitalManagementDB` qua JNDI Tomcat, URL đang cấu hình `jdbc:sqlserver://localhost:51433;databaseName=HospitalManagementDB;encrypt=true;trustServerCertificate=true;loginTimeout=5`. Kiểm tra chỉ đọc lấy cấu hình từ JNDI cục bộ; không đưa mật khẩu vào source, câu lệnh, log hoặc báo cáo và không sửa file `.env.example` đính kèm. URL này khác instance `SQLEXPRESS04` trong file đính kèm; không dùng giá trị `.env.example` thay cho JNDI đang chạy.
 - Metadata đã xác nhận: `Patients.AccessCode` là `varchar(50)`, `Phone` unique; `Bills.AppointmentId` unique; `Payments.BillId` unique; `SystemLogs.UserId` nullable. Không có schema SQL dump trong workspace; metadata đọc trực tiếp, không chạy DDL.
-- Số lượng ở thời điểm kiểm tra: `Patients=1`, `Appointments=1`, `Bills=0`, `Payments=0`, `MedicalServices=0`, `MedicalServiceOrders=0`. Không có dữ liệu nghiệp vụ được thêm trong lần sửa này.
+- Snapshot SELECT ngày 09/11/2026: `Patients=2`, `Appointments=2`, `MedicalRecords=0`, `Prescriptions=0`, `Medicines=1` (đang hoạt động: 1), `MedicalServices=0`, `MedicalServiceOrders=0`, `Bills=0`, `Payments=0`, `LeaveRequests=1`; có 5 bác sĩ công khai. Lượt kiểm tra không chèn/sửa/xóa dữ liệu nghiệp vụ.
+- Danh mục hiện đã có 1 thuốc active. Mục Khoa của form Dịch vụ không phải danh mục thuốc; thuốc được quản lý qua Manager → Danh mục thuốc và kê ở trang Doctor → Đơn thuốc của lượt khám đang tiến hành. `MedicalRecords=0`, nên chưa có hồ sơ khám để kiểm chứng kê đơn hợp lệ trên DB hiện tại; chưa dùng phiên Doctor để xác nhận dropdown.
 - Roles thực tế: `Manager`, `Doctor`, `Receptionist`, `MedicalStaff`. Không gộp hoặc thêm Cashier/Lab Technician.
 - SRS nói phí thuốc trong billing, trong khi SDS v3 và schema Bills chỉ mô tả phí khám + dịch vụ; cần chốt quy tắc/schema trước khi cộng tiền thuốc.
 - SRS mô tả lịch lặp, còn luồng hiện tại chỉ công bố lịch theo ngày với ca sáng/chiều. “Phản hồi” không có bảng lưu; SMS/email/cổng thanh toán không có provider. Các mục này chưa triển khai.
 
 ## Kiểm thử tích hợp còn bị chặn
 
-- Không test được hai request booking đồng thời cùng một slot trên database, approve leave có lượt đang khám, check-in, lập bill và thu tiền bằng transaction thật vì không có slot/bill/dữ liệu/phiên test được phép dùng. Logic conditional update/transaction được kiểm thử ở mức helper hoặc code review, không được coi là tích hợp DB đã chứng minh.
+- Chưa test hai request booking đồng thời, approve leave có lượt đang khám, check-in, lập bill và thu tiền bằng transaction thật vì chưa có tài khoản và bộ dữ liệu được phép thay đổi. Slot hiện có nhưng không dùng lịch thật làm fixture. Logic conditional update/transaction chỉ được kiểm tra ở mức helper hoặc code review.
 - Chưa dùng phiên đúng role để xác minh từng URL được phép và URL trái role; request chưa đăng nhập đã được kiểm tra bị chuyển về login.
+- Phê duyệt tự động từ chối lệnh dự kiến POST sửa/hủy `appointmentId=1` trong phiên bệnh nhân chưa xác minh: nếu phân quyền có lỗi, phép thử có thể thay đổi lịch thật. Lệnh đó không được thực thi; sau đó chỉ chạy các GET. Cần tài khoản và lịch thử được xác nhận là có thể thay đổi để hoàn tất phép kiểm tra này.
 - Các luồng DB ghi thật chỉ nên test tiếp bằng tài khoản và dữ liệu sandbox được cấp riêng. Không dùng bệnh nhân thật làm fixture.
 
 ## Chạy lại

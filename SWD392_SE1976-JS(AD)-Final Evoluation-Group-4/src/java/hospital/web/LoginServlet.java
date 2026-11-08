@@ -9,6 +9,9 @@ import java.sql.SQLException;
 @WebServlet("/login")
 public class LoginServlet extends HttpServlet {
     private final HospitalDao dao=new HospitalDao();
+    @Override protected void doGet(HttpServletRequest req,HttpServletResponse res)throws IOException{
+        res.sendRedirect(req.getContextPath()+"/#staff-login");
+    }
     @Override protected void doPost(HttpServletRequest req,HttpServletResponse res)throws ServletException,IOException{
         if(!hospital.security.CsrfToken.isValid(req.getSession(false),req.getParameter("csrfToken"))){res.sendRedirect(req.getContextPath()+"/?login=expired");return;}
         String username=req.getParameter("username"),password=req.getParameter("password");
