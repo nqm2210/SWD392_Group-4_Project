@@ -13,7 +13,7 @@ List<Department> departments=(List<Department>)request.getAttribute("departments
 Map<?,?> errors=(Map<?,?>)request.getAttribute("formErrors");
 Map<?,?> staffErrors=(Map<?,?>)request.getAttribute("staffFormErrors");
 %>
-<p class="muted">Quản lý thông tin hồ sơ, tài khoản đăng nhập (Username) và đặt lại mật khẩu cho Bác sĩ, Lễ tân và Nhân viên y tế.</p>
+<p class="muted">Quản lý thông tin hồ sơ, tài khoản đăng nhập (Username) và đặt lại mật khẩu cho Bác sĩ và Lễ tân.</p>
 <%if(request.getAttribute("savedMessage")!=null){%><div class="notice notice-success" role="status"><%=escStaff(request.getAttribute("savedMessage").toString())%></div><%}%>
 <%if(request.getAttribute("formError")!=null){%><div class="notice notice-error" role="alert"><%=escStaff(request.getAttribute("formError").toString())%></div><%}%>
 <%if(request.getAttribute("loadError")!=null){%><div class="notice notice-error" role="alert"><%=escStaff(request.getAttribute("loadError").toString())%></div><%}%>
@@ -39,8 +39,8 @@ Map<?,?> staffErrors=(Map<?,?>)request.getAttribute("staffFormErrors");
 <button class="button button-primary" type="submit">Lưu hồ sơ</button></form></details></article>
 <%}%></div><%}%>
 
-<h3>Tài khoản Lễ tân &amp; Nhân viên y tế</h3>
-<%if(staffAccounts==null||staffAccounts.isEmpty()){%><div class="empty-state"><strong>Chưa có tài khoản Lễ tân hoặc Nhân viên y tế.</strong><p>Các tài khoản hiện có sẽ xuất hiện tại đây.</p></div><%}else{%>
+<h3>Tài khoản Lễ tân</h3>
+<%if(staffAccounts==null||staffAccounts.isEmpty()){%><div class="empty-state"><strong>Chưa có tài khoản Lễ tân.</strong><p>Các tài khoản hiện có sẽ xuất hiện tại đây.</p></div><%}else{%>
 <div class="doctor-admin-list">
 <%for(DoctorProfile staff:staffAccounts){boolean editedStaff="POST".equals(request.getMethod())&&"updateStaff".equals(request.getParameter("action"))&&String.valueOf(staff.userId()).equals(request.getParameter("userId"));Map<?,?> activeStaffErrors=editedStaff?staffErrors:null;String staffUsername=postedStaffValue(request,staff,"username",staff.username());String staffName=postedStaffValue(request,staff,"fullName",staff.fullName());String staffEmail=postedStaffValue(request,staff,"email",staff.email());String staffPhone=postedStaffValue(request,staff,"phone",staff.phone());String staffDepartmentId=postedStaffValue(request,staff,"departmentId",String.valueOf(staff.departmentId()));boolean active=editedStaff?request.getParameter("active")!=null:staff.published();%>
 <article class="doctor-admin-card"><div class="doctor-admin-summary"><div><h3><%=escStaff(staff.academicTitle())%> · <%=escStaff(staff.fullName())%></h3><p><%=escStaff(staff.departmentName())%></p><p class="muted">Username: <%=escStaff(staff.username())%> · Email: <%=escStaff(staff.email())%> · SĐT: <%=escStaff(staff.phone())%></p></div><strong><%=staff.published()?"Đang hoạt động":"Đã khóa"%></strong></div>

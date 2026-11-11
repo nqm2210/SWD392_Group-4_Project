@@ -1,8 +1,8 @@
 <%@ page contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page import="java.util.*,hospital.model.MedicineOption,hospital.model.MedicalService,hospital.model.PrescriptionLine,hospital.model.ServiceOrderSummary" %>
-<%! private String escOrder(String value){if(value==null)return "";return value.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&#39;");} %>
+<%! private String escOrder(String value){if(value==null)return "";return value.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&#39;");} private String orderStatusText(String status){if("ORDERED".equalsIgnoreCase(status))return "Đã chỉ định";if("IN_PROGRESS".equalsIgnoreCase(status))return "Đang thực hiện";if("COMPLETED".equalsIgnoreCase(status))return "Đã hoàn tất";if("CANCELLED".equalsIgnoreCase(status))return "Đã hủy";return status==null?"":status;} %>
 <%
-String pageKey=(String)request.getAttribute("doctorPageKey"),csrf=(String)request.getAttribute("csrfToken");
+String pageKey=(String)request.getAttribute("doctorPageKey"),csrf=(String)request.getAttribute("csrfToken"),date=(String)request.getAttribute("date");
 hospital.model.DoctorVisit visit=(hospital.model.DoctorVisit)request.getAttribute("orderVisit");
 String action=request.getParameter("action");
 boolean isCompleted="COMPLETED".equalsIgnoreCase(visit.recordStatus());
@@ -37,7 +37,7 @@ else{%>
     <td>
         <details class="doctor-edit"><summary>Sửa</summary>
         <form method="post" action="<%=request.getContextPath()%>/doctor/consultation" class="form-grid">
-            <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="view" value="prescriptions"><input type="hidden" name="action" value="medicine-update"><input type="hidden" name="detailId" value="<%=line.detailId()%>">
+            <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="date" value="<%=escOrder(date)%>"><input type="hidden" name="view" value="prescriptions"><input type="hidden" name="action" value="medicine-update"><input type="hidden" name="detailId" value="<%=line.detailId()%>">
             <div class="form-field"><label for="quantity-<%=line.detailId()%>">Số lượng *</label><input type="number" id="quantity-<%=line.detailId()%>" name="quantity" min="1" max="10000" required value="<%=escOrder(quantity)%>"></div>
             <div class="form-field"><label for="dosage-<%=line.detailId()%>">Liều dùng *</label><input id="dosage-<%=line.detailId()%>" name="dosage" maxlength="255" required value="<%=escOrder(dosage)%>"></div>
             <div class="form-field full-width"><label for="instructions-<%=line.detailId()%>">Hướng dẫn</label><textarea id="instructions-<%=line.detailId()%>" name="doctorInstructions" maxlength="4000"><%=escOrder(instructions)%></textarea></div>
@@ -45,7 +45,7 @@ else{%>
         </form>
         </details>
         <form method="post" action="<%=request.getContextPath()%>/doctor/consultation" onsubmit="return confirm('Xóa thuốc này khỏi đơn đang lập?')" style="display:inline-block;">
-            <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="view" value="prescriptions"><input type="hidden" name="action" value="medicine-delete"><input type="hidden" name="detailId" value="<%=line.detailId()%>">
+            <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="date" value="<%=escOrder(date)%>"><input type="hidden" name="view" value="prescriptions"><input type="hidden" name="action" value="medicine-delete"><input type="hidden" name="detailId" value="<%=line.detailId()%>">
             <button class="button button-outline" type="submit">Xóa</button>
         </form>
     </td>
@@ -62,7 +62,7 @@ if(!isCompleted){
         String postedMedicine=addForm?request.getParameter("catalogId"):null;
 %>
 <form method="post" action="<%=request.getContextPath()%>/doctor/consultation" class="form-grid">
-    <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="view" value="prescriptions">
+    <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="date" value="<%=escOrder(date)%>"><input type="hidden" name="view" value="prescriptions">
     <div class="form-field"><label for="medicine">Thuốc *</label><select id="medicine" name="catalogId" required><option value="">Chọn thuốc</option><%for(MedicineOption medicine:medicines){%><option value="<%=medicine.id()%>" <%=String.valueOf(medicine.id()).equals(postedMedicine)?"selected":""%>><%=escOrder(medicine.name()+" · "+medicine.unit()+" · "+String.format("%,.0f",medicine.unitPrice())+" ₫")%></option><%}%></select></div>
     <div class="form-field"><label for="quantity">Số lượng *</label><input type="number" id="quantity" name="quantity" min="1" max="10000" required value="<%=escOrder(addForm?request.getParameter("quantity"):"")%>"></div>
     <div class="form-field"><label for="dosage">Liều dùng *</label><input id="dosage" name="dosage" maxlength="255" required value="<%=escOrder(addForm?request.getParameter("dosage"):"")%>"></div>
@@ -81,8 +81,8 @@ if(!isCompleted){
     <td><%=escOrder(o.serviceName())%></td>
     <td><%="URGENT".equals(o.priority())?"Khẩn":"Bình thường"%></td>
     <td><%=escOrder(o.instructions())%></td>
-    <td><%=escOrder(o.orderStatus())%></td>
-    <td><%=escOrder(o.resultStatus()==null?"Chưa có":o.resultStatus())%></td>
+    <td><%=escOrder(orderStatusText(o.orderStatus()))%></td>
+    <td><%="RELEASED".equalsIgnoreCase(o.resultStatus())?"Đã phát hành":"—"%></td>
     <td><%if(o.resultFindings()!=null){%><strong><%=escOrder(o.resultFindings())%></strong><%if(o.resultDetails()!=null&&!o.resultDetails().isBlank()){%><br><small class="muted"><%=escOrder(o.resultDetails())%></small><%}%><%}else{%>—<%}%></td>
 </tr>
 <%}%>
@@ -99,7 +99,7 @@ if(!isCompleted){
             String postedInstructions=(String)request.getAttribute("postedInstructions");
 %>
 <form method="post" action="<%=request.getContextPath()%>/doctor/consultation" class="form-grid">
-    <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="view" value="lab-orders">
+    <input type="hidden" name="csrfToken" value="<%=escOrder(csrf)%>"><input type="hidden" name="appointmentId" value="<%=visit.appointmentId()%>"><input type="hidden" name="date" value="<%=escOrder(date)%>"><input type="hidden" name="view" value="lab-orders">
     <div class="form-field"><label for="medical-service">Dịch vụ *</label><select id="medical-service" name="catalogId" required><option value="">Chọn dịch vụ</option><%for(MedicalService item:services)if(item.active()){%><option value="<%=item.id()%>" <%=String.valueOf(item.id()).equals(postedCatalogId)?"selected":""%>><%=escOrder(item.name()+" · "+String.format("%,.0f",item.unitPrice())+" ₫")%></option><%}%></select></div>
     <div class="form-field"><label for="priority">Mức ưu tiên</label><select id="priority" name="priority"><option value="NORMAL" <%="NORMAL".equals(postedPriority)?"selected":""%>>Bình thường</option><option value="URGENT" <%="URGENT".equals(postedPriority)?"selected":""%>>Khẩn</option></select></div>
     <div class="form-field full-width"><label for="clinical-instructions">Hướng dẫn lâm sàng</label><textarea id="clinical-instructions" name="clinicalInstructions" maxlength="255"><%=escOrder(postedInstructions==null?"":postedInstructions)%></textarea></div>

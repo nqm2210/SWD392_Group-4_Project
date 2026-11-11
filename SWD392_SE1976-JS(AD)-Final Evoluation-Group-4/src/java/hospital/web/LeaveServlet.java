@@ -93,7 +93,7 @@ public class LeaveServlet extends HttpServlet {
         jakarta.servlet.http.HttpSession session=req.getSession(false);
         StaffUser user=session==null?null:(StaffUser)session.getAttribute("staffUser");
         boolean managerRoute="/leave-approvals".equals(req.getServletPath());
-        boolean allowed=user!=null&&(managerRoute?"Manager".equals(user.role()):java.util.List.of("Doctor","Receptionist","MedicalStaff").contains(user.role()));
+        boolean allowed=user!=null&&(managerRoute?"Manager".equals(user.role()):java.util.List.of("Doctor","Receptionist").contains(user.role()));
         if(!allowed){res.sendError(HttpServletResponse.SC_FORBIDDEN,"Không có quyền thực hiện chức năng này.");return null;}
         return user;
     }

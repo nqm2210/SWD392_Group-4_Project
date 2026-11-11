@@ -18,7 +18,7 @@ public class HomeServlet extends HttpServlet {
         if("/slots".equals(req.getServletPath())){loadSlots(req,res);return;}
         HttpSession bookingSession=req.getSession(false);
         if(bookingSession!=null&&bookingSession.getAttribute("bookingAppointmentNumber") instanceof String appointmentNumber){
-            req.setAttribute("bookingAppointmentNumber",appointmentNumber);req.setAttribute("oneTimePatientAccessCode",bookingSession.getAttribute("oneTimePatientAccessCode"));bookingSession.removeAttribute("bookingAppointmentNumber");bookingSession.removeAttribute("oneTimePatientAccessCode");
+            req.setAttribute("bookingAppointmentNumber",appointmentNumber);bookingSession.removeAttribute("bookingAppointmentNumber");
             req.setAttribute("bookingSuccess","Đặt lịch thành công. Mã lịch hẹn được hiển thị bên dưới.");
         }
         try{req.setAttribute("doctors",dao.findPublicDoctors(req.getParameter("q")));}catch(SQLException ex){getServletContext().log("Không thể tải danh sách bác sĩ.",ex);req.setAttribute("doctorError","Không thể tải danh sách bác sĩ. Vui lòng thử lại sau.");}

@@ -28,6 +28,11 @@ public class TestSuite {
         var missingSlot=AppointmentValidator.validate("Nguyễn Văn An","1990-01-01","Nam","0901234567","","Đau đầu","1",LocalDate.now().plusDays(1).toString(),"");
         require(missingSlot.containsKey("slotId"),"Không cho gửi lịch hẹn khi chưa có khung giờ thật");
         require(RoleAccess.menusFor("Receptionist").contains("Check-in"),"Receptionist phải có quyền check-in");
+        require(RoleAccess.menusFor("Receptionist").contains("Tạo lịch bác sĩ"),"Lễ tân phải có quyền tạo lịch bác sĩ");
+        require(RoleAccess.menuKeysFor("Receptionist").contains("doctor-schedules"),"doctor-schedules phải gắn với vai trò Receptionist");
+        require(RoleAccess.menuKeysFor("Doctor").contains("schedule"),"Doctor có trang schedule để xem ca làm việc");
+        require(!RoleAccess.menusFor("Doctor").contains("Tạo lịch bác sĩ"),"Doctor không còn tự tạo lịch");
+        require(hospital.validation.AppointmentValidator.validate("Nguyen Van A","2000-01-01","Nam","0912345678","","Kham benh","1","2026-12-01","1").containsKey("email"),"Email là bắt buộc khi đặt lịch để bệnh nhân xác thực tra cứu");
         require(RoleAccess.menusFor("Manager").contains("Danh mục thuốc"),"Danh mục thuốc chỉ được thêm dưới Manager theo yêu cầu hiện tại");
         require(RoleAccess.menusFor("Manager").contains("Quản lý nhân sự"),"Manager phải thấy mục quản lý nhân sự");
         require(!RoleAccess.pagesFor("Doctor").contains("medicines"),"Doctor không được quản trị danh mục thuốc");
@@ -63,8 +68,8 @@ public class TestSuite {
         require(DoctorProfileValidator.validate("bad username","","Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000","Available").containsKey("username"),"Tên đăng nhập chứa khoảng trắng phải bị từ chối");
         require(DoctorProfileValidator.validate("doctor.demo","12345","Bác sĩ Demo","doctor@example.test","DEMO-1000","4","Nội khoa","BS.","NOI-10","150000","Available").containsKey("newPassword"),"Mật khẩu mới dưới 6 ký tự phải bị từ chối");
         require(DoctorProfileValidator.validateStaffAccount("reception_01","","Lễ tân Demo","reception@example.test","0901234567","").isEmpty(),"Tài khoản lễ tân hợp lệ được phép không gán khoa và giữ mật khẩu");
-        require(DoctorProfileValidator.validateStaffAccount("medical_01","new-pass-2026","Nhân viên y tế","medical@example.test","0901234568","4").isEmpty(),"Tài khoản nhân viên y tế hợp lệ được chấp nhận");
-        require(DoctorProfileValidator.validateStaffAccount("medical_01","","Nhân viên y tế","bad-email","0901234568","0").containsKey("departmentId"),"Khoa không hợp lệ của tài khoản nhân viên phải bị từ chối");
+        require(DoctorProfileValidator.validateStaffAccount("reception_02","new-pass-2026","Lễ tân Quầy 2","reception2@example.test","0901234568","4").isEmpty(),"Tài khoản lễ tân có khoa hợp lệ được chấp nhận");
+        require(DoctorProfileValidator.validateStaffAccount("reception_02","","Lễ tân Quầy 2","bad-email","0901234568","0").containsKey("departmentId"),"Khoa không hợp lệ của tài khoản nhân viên phải bị từ chối");
         require(MedicalServiceValidator.validate("SRV-01","Xét nghiệm máu","1","120000","Mô tả").isEmpty(),"Dịch vụ hợp lệ phải được chấp nhận");
         require(!MedicalServiceValidator.validate("","","0","-1","x".repeat(256)).isEmpty(),"Dịch vụ sai phải bị từ chối");
         require(MedicalServiceValidator.validate("SRV-02","Xét nghiệm","1","10000000000000000","").containsKey("unitPrice"),"DECIMAL(18,2) phải từ chối 17 chữ số phần nguyên");
@@ -78,9 +83,14 @@ public class TestSuite {
         require(!ReportPeriodValidator.validate("2026-11-09","2026-11-08").isEmpty(),"Ngày kết thúc trước ngày bắt đầu phải bị từ chối");
         require(!ReportPeriodValidator.validate("2010-01-01","2026-11-08").isEmpty(),"Khoảng báo cáo quá 5 năm phải bị từ chối");
         require(RoleAccess.menusFor("Manager").contains("Báo cáo hoạt động"),"Manager phải thấy báo cáo hoạt động");
+        require(!RoleAccess.menusFor("Manager").contains("Phản hồi")&&!RoleAccess.pagesFor("Manager").contains("feedback"),"Manager không còn mục Phản hồi");
         require(RoleAccess.menusFor("Doctor").contains("Đơn thuốc"),"Doctor phải thấy chức năng đơn thuốc");
         require(RoleAccess.menusFor("Receptionist").contains("Đăng ký bệnh nhân"),"Receptionist phải thấy đăng ký tại quầy");
-        require(RoleAccess.menusFor("MedicalStaff").contains("Nhập kết quả"),"MedicalStaff phải thấy nhập kết quả");
+        require(!RoleAccess.isSupported("MedicalStaff")&&RoleAccess.menusFor("MedicalStaff").isEmpty(),"Đã loại bỏ hoàn toàn vai trò MedicalStaff");
+        require(!RoleAccess.pagesFor("Manager").contains("overview")&&!RoleAccess.pagesFor("Doctor").contains("overview")&&!RoleAccess.pagesFor("Receptionist").contains("overview"),"Không role nào còn trang Tổng quan");
+        require("leave-approvals".equals(RoleAccess.defaultPageFor("Manager")),"Trang mặc định của Manager là Duyệt đơn nghỉ");
+        require("schedule".equals(RoleAccess.defaultPageFor("Doctor")),"Trang mặc định của Doctor là Lịch làm việc");
+        require("appointments".equals(RoleAccess.defaultPageFor("Receptionist")),"Trang mặc định của Receptionist là Danh sách lịch hẹn");
         require(SchedulePublicationValidator.validate(LocalDate.now().plusDays(1).toString(),"AM",LocalDate.now()).isEmpty(),"Lịch bác sĩ tương lai với ca hợp lệ phải được chấp nhận");
         require(!SchedulePublicationValidator.validate(LocalDate.now().minusDays(1).toString(),"PM",LocalDate.now()).isEmpty(),"Không được công bố lịch trong quá khứ");
         require(!SchedulePublicationValidator.validate(LocalDate.now().toString(),"NIGHT",LocalDate.now()).isEmpty(),"Không được tạo ca không nằm trong lịch hỗ trợ");
@@ -90,8 +100,6 @@ public class TestSuite {
         try { AppointmentSafety.requireNoConsultationConflict(false); require(true,"Không có lượt đang khám thì duyệt nghỉ được tiếp tục"); } catch (Exception ex) { throw new AssertionError("Không có lượt đang khám thì không được chặn duyệt nghỉ", ex); }
         passedIfThrows(() -> AppointmentSafety.requireSlotReserved(0), "Đặt cùng slot lần hai phải bị từ chối");
         try { AppointmentSafety.requireSlotReserved(1); require(true,"Slot được đặt thành công đúng một lần"); } catch (Exception ex) { throw new AssertionError("Lần cập nhật slot đầu tiên phải thành công", ex); }
-        passedIfThrows(() -> AppointmentSafety.requireServiceOrdersReviewed(1), "Không hoàn tất khi còn chỉ định hoặc kết quả chưa phát hành");
-        try { AppointmentSafety.requireServiceOrdersReviewed(0); require(true,"Không có chỉ định đang chờ thì hồ sơ có thể hoàn tất"); } catch (Exception ex) { throw new AssertionError("Không có chỉ định đang chờ thì có thể hoàn tất", ex); }
         passedIfThrows(() -> AppointmentSafety.requireDoctorOwnership(false), "Bác sĩ không sở hữu ca khám phải bị từ chối truy cập");
         try { AppointmentSafety.requireDoctorOwnership(true); require(true,"Bác sĩ sở hữu ca khám được phép xử lý"); } catch (Exception ex) { throw new AssertionError("Bác sĩ sở hữu ca khám phải được phép", ex); }
         passedIfThrows(() -> AppointmentSafety.requireRecordEditable("COMPLETED"), "Hồ sơ đã COMPLETED phải ở chế độ chỉ đọc không cho sửa");

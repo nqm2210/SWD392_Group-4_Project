@@ -11,7 +11,9 @@ import hospital.model.MedicalService;
 import hospital.model.LeaveRequest;
 import hospital.model.AppointmentSummary;
 import hospital.model.ActivityReportRow;
+import hospital.model.ActivityDetailRow;
 import hospital.model.RevenueReportRow;
+import hospital.model.RevenueDetailRow;
 import hospital.model.DoctorVisit;
 import hospital.model.ServiceOrderSummary;
 import hospital.model.MedicineOption;
@@ -169,16 +171,6 @@ public class HospitalDao {
         }
     }
 
-    public List<ServiceOrderSummary> findServiceOrders() throws SQLException {
-        String sql="SELECT o.OrderId,o.OrderNumber,p.FullName,a.AppointmentNumber,du.FullName,dep.DepartmentName,svc.ServiceName,o.Priority,o.ClinicalInstructions,o.Status,r.Findings,r.ResultDetails,r.Status,o.OrderedAt "
-                +"FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId JOIN Appointments a ON a.AppointmentId=mr.AppointmentId JOIN Patients p ON p.PatientId=mr.PatientId JOIN Doctors d ON d.DoctorId=mr.DoctorId JOIN Users du ON du.UserId=d.UserId LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId JOIN MedicalServices svc ON svc.ServiceId=o.ServiceId LEFT JOIN MedicalServiceResults r ON r.OrderId=o.OrderId ORDER BY CASE WHEN o.Status='ORDERED' THEN 0 WHEN o.Status='IN_PROGRESS' THEN 1 ELSE 2 END,o.OrderedAt DESC";
-        List<ServiceOrderSummary> orders=new ArrayList<>();
-        try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql);ResultSet r=s.executeQuery()){
-            while(r.next()){Timestamp ordered=r.getTimestamp(14);orders.add(new ServiceOrderSummary(r.getInt(1),r.getString(2),r.getString(3),r.getString(4),r.getString(5),r.getString(6),r.getString(7),r.getString(8),r.getString(9),r.getString(10),r.getString(11),r.getString(12),r.getString(13),ordered==null?null:ordered.toLocalDateTime()));}
-        }
-        return orders;
-    }
-
     public List<ServiceOrderSummary> findServiceOrdersForAppointment(int appointmentId, int doctorUserId) throws SQLException {
         String sql="SELECT o.OrderId,o.OrderNumber,p.FullName,a.AppointmentNumber,du.FullName,dep.DepartmentName,svc.ServiceName,o.Priority,o.ClinicalInstructions,o.Status,r.Findings,r.ResultDetails,r.Status,o.OrderedAt "
                 +"FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId JOIN Appointments a ON a.AppointmentId=mr.AppointmentId JOIN Patients p ON p.PatientId=mr.PatientId JOIN Doctors d ON d.DoctorId=mr.DoctorId JOIN Users du ON du.UserId=d.UserId LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId JOIN MedicalServices svc ON svc.ServiceId=o.ServiceId LEFT JOIN MedicalServiceResults r ON r.OrderId=o.OrderId "
@@ -195,28 +187,6 @@ public class HospitalDao {
             }
         }
         return orders;
-    }
-
-    public void saveServiceResult(int orderId,int staffUserId,String findings,String details,boolean release)throws SQLException{
-        try(Connection c=Database.connect()){
-            c.setAutoCommit(false);c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
-            try{
-                String orderStatus;
-                try(PreparedStatement s=c.prepareStatement("SELECT Status FROM MedicalServiceOrders WITH (UPDLOCK,HOLDLOCK) WHERE OrderId=?")){s.setInt(1,orderId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Không tìm thấy chỉ định dịch vụ.");orderStatus=r.getString(1);}}
-                if("COMPLETED".equalsIgnoreCase(orderStatus)||"CANCELLED".equalsIgnoreCase(orderStatus))throw new SQLException("Chỉ định đã đóng, không thể cập nhật kết quả.");
-                int resultId=0;String resultStatus=null;
-                try(PreparedStatement s=c.prepareStatement("SELECT ResultId,Status FROM MedicalServiceResults WITH (UPDLOCK,HOLDLOCK) WHERE OrderId=?")){s.setInt(1,orderId);try(ResultSet r=s.executeQuery()){if(r.next()){resultId=r.getInt(1);resultStatus=r.getString(2);}}}
-                if("RELEASED".equalsIgnoreCase(resultStatus))throw new SQLException("Kết quả đã phát hành, không thể sửa.");
-                String next=release?"RELEASED":"DRAFT";
-                if(resultId==0){String insert="INSERT INTO MedicalServiceResults(OrderId,PerformedBy,Findings,ResultDetails,Status,ResultDate,ReleasedAt) VALUES(?,?,?,?,?,GETDATE(),CASE WHEN ?=1 THEN GETDATE() ELSE NULL END)";
-                    try(PreparedStatement s=c.prepareStatement(insert)){s.setInt(1,orderId);s.setInt(2,staffUserId);s.setNString(3,findings);s.setNString(4,details);s.setString(5,next);s.setBoolean(6,release);s.executeUpdate();}}
-                else {String update="UPDATE MedicalServiceResults SET PerformedBy=?,Findings=?,ResultDetails=?,Status=?,ResultDate=GETDATE(),ReleasedAt=CASE WHEN ?=1 THEN GETDATE() ELSE NULL END WHERE ResultId=?";
-                    try(PreparedStatement s=c.prepareStatement(update)){s.setInt(1,staffUserId);s.setNString(2,findings);s.setNString(3,details);s.setString(4,next);s.setBoolean(5,release);s.setInt(6,resultId);if(s.executeUpdate()!=1)throw new SQLException("Không lưu được kết quả dịch vụ.");}}
-                try(PreparedStatement s=c.prepareStatement("UPDATE MedicalServiceOrders SET Status=?,CompletedAt=CASE WHEN ?=1 THEN GETDATE() ELSE NULL END WHERE OrderId=?")){s.setString(1,release?"COMPLETED":"IN_PROGRESS");s.setBoolean(2,release);s.setInt(3,orderId);if(s.executeUpdate()!=1)throw new SQLException("Không cập nhật được trạng thái chỉ định.");}
-                try(PreparedStatement s=c.prepareStatement("INSERT INTO SystemLogs(UserId,Action,EntityName,RecordId,Details,Reason) VALUES(?,?,?,?,?,?)")){s.setInt(1,staffUserId);s.setString(2,release?"RELEASE_SERVICE_RESULT":"SAVE_SERVICE_RESULT");s.setString(3,"MedicalServiceOrders");s.setString(4,String.valueOf(orderId));s.setNString(5,"ResultStatus="+next);s.setNString(6,"Medical staff result entry");s.executeUpdate();}
-                c.commit();
-            }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
-        }
     }
 
     public List<DoctorVisit> findDoctorVisits(int doctorUserId, LocalDate date) throws SQLException {
@@ -244,8 +214,8 @@ public class HospitalDao {
         try(Connection c=Database.connect()){
             c.setAutoCommit(false); c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
             try {
-                String update="UPDATE a SET Status='IN_CONSULTATION' FROM Appointments a JOIN Doctors d ON d.DoctorId=a.DoctorId WHERE a.AppointmentId=? AND d.UserId=? AND a.Status='CHECKED_IN' AND a.AppointmentDate=CONVERT(date,GETDATE())";
-                try(PreparedStatement s=c.prepareStatement(update)){s.setInt(1,appointmentId);s.setInt(2,doctorUserId);if(s.executeUpdate()!=1)throw new SQLException("Lịch không thuộc bác sĩ này hoặc chưa check-in hôm nay.");}
+                String update="UPDATE a SET Status='IN_CONSULTATION' FROM Appointments a JOIN Doctors d ON d.DoctorId=a.DoctorId WHERE a.AppointmentId=? AND d.UserId=? AND a.Status='CHECKED_IN'";
+                try(PreparedStatement s=c.prepareStatement(update)){s.setInt(1,appointmentId);s.setInt(2,doctorUserId);if(s.executeUpdate()!=1)throw new SQLException("Lịch không thuộc bác sĩ này hoặc chưa được check-in.");}
                 audit(c,doctorUserId,"START_CONSULTATION",appointmentId,"Status=IN_CONSULTATION"); c.commit();
             } catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
         }
@@ -261,19 +231,18 @@ public class HospitalDao {
                 if(!"IN_CONSULTATION".equals(appointmentStatus))throw new SQLException("Hãy bắt đầu khám trước khi lưu hồ sơ.");
                 int recordId=0;
                 try(PreparedStatement s=c.prepareStatement("SELECT RecordId,Status FROM MedicalRecords WITH (UPDLOCK,HOLDLOCK) WHERE AppointmentId=?")){s.setInt(1,appointmentId);try(ResultSet r=s.executeQuery()){if(r.next()){recordId=r.getInt(1);if("COMPLETED".equalsIgnoreCase(r.getString(2)))throw new SQLException("Hồ sơ đã hoàn tất, không thể sửa.");}}}
-                if(complete){
-                    try(PreparedStatement s=c.prepareStatement("SELECT COUNT(*) FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId LEFT JOIN MedicalServiceResults sr ON sr.OrderId=o.OrderId WHERE mr.AppointmentId=? AND (o.Status<>'COMPLETED' OR ISNULL(sr.Status,'')<>'RELEASED')")){s.setInt(1,appointmentId);try(ResultSet r=s.executeQuery()){r.next();AppointmentSafety.requireServiceOrdersReviewed(r.getInt(1));}}
-                }
                 String status=complete?"COMPLETED":"IN_PROGRESS";
                 if(recordId==0){String insert="INSERT INTO MedicalRecords(AppointmentId,PatientId,DoctorId,ClinicalNotes,Diagnosis,TreatmentPlan,Status,CompletedAt) VALUES(?,?,?,?,?,?,?,CASE WHEN ?=1 THEN GETDATE() ELSE NULL END)";
                     try(PreparedStatement s=c.prepareStatement(insert)){s.setInt(1,appointmentId);s.setInt(2,patientId);s.setInt(3,doctorId);s.setNString(4,notes);s.setNString(5,diagnosis);s.setNString(6,plan);s.setString(7,status);s.setBoolean(8,complete);s.executeUpdate();}}
                 else {String update="UPDATE MedicalRecords SET ClinicalNotes=?,Diagnosis=?,TreatmentPlan=?,Status=?,CompletedAt=CASE WHEN ?=1 THEN GETDATE() ELSE NULL END WHERE RecordId=? AND DoctorId=?";
                     try(PreparedStatement s=c.prepareStatement(update)){s.setNString(1,notes);s.setNString(2,diagnosis);s.setNString(3,plan);s.setString(4,status);s.setBoolean(5,complete);s.setInt(6,recordId);s.setInt(7,doctorId);if(s.executeUpdate()!=1)throw new SQLException("Không thể cập nhật hồ sơ khám.");}}
                 if(complete){
+                    String closeOrders="UPDATE o SET Status='COMPLETED',CompletedAt=COALESCE(o.CompletedAt,GETDATE()) FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId WHERE mr.AppointmentId=? AND ISNULL(o.Status,'ORDERED') IN ('ORDERED','IN_PROGRESS')";
+                    try(PreparedStatement s=c.prepareStatement(closeOrders)){s.setInt(1,appointmentId);s.executeUpdate();}
                     try(PreparedStatement s=c.prepareStatement("UPDATE Appointments SET Status='COMPLETED' WHERE AppointmentId=? AND Status='IN_CONSULTATION'")){s.setInt(1,appointmentId);if(s.executeUpdate()!=1)throw new SQLException("Không thể hoàn tất lịch khám.");}
                     java.math.BigDecimal consultationFee,serviceAmount;
                     try(PreparedStatement s=c.prepareStatement("SELECT ConsultationFee FROM Appointments WHERE AppointmentId=?")){s.setInt(1,appointmentId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Không tìm thấy phí khám cho lịch.");consultationFee=r.getBigDecimal(1);}}
-                    String serviceTotal="SELECT COALESCE(SUM(o.UnitPrice),0) FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId JOIN MedicalServiceResults sr ON sr.OrderId=o.OrderId WHERE mr.AppointmentId=? AND o.Status='COMPLETED' AND sr.Status='RELEASED'";
+                    String serviceTotal="SELECT COALESCE(SUM(o.UnitPrice),0) FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId WHERE mr.AppointmentId=? AND o.Status='COMPLETED'";
                     try(PreparedStatement s=c.prepareStatement(serviceTotal)){s.setInt(1,appointmentId);try(ResultSet r=s.executeQuery()){r.next();serviceAmount=r.getBigDecimal(1);}}
                     String billNumber="BILL-"+UUID.randomUUID().toString().replace("-","").substring(0,25).toUpperCase(Locale.ROOT);
                     String bill="INSERT INTO Bills(BillNumber,AppointmentId,ConsultationFee,TotalServiceAmount,TotalAmount,PaymentStatus,FinalizedAt) VALUES(?,?,?,?,?,'UNPAID',GETDATE())";
@@ -325,6 +294,80 @@ public class HospitalDao {
         return rows;
     }
 
+    public List<ActivityDetailRow> findDetailedActivityReport(LocalDate from, LocalDate to) throws SQLException {
+        String sql = "SELECT a.AppointmentId, a.AppointmentNumber, a.AppointmentDate, ss.StartTime, "
+                + "p.FullName, p.Phone, u.FullName, dep.DepartmentName, a.Status, a.Reason "
+                + "FROM Appointments a "
+                + "JOIN Patients p ON p.PatientId=a.PatientId "
+                + "JOIN Doctors d ON d.DoctorId=a.DoctorId "
+                + "JOIN Users u ON u.UserId=d.UserId "
+                + "LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId "
+                + "LEFT JOIN ScheduleSlots ss ON ss.SlotId=a.SlotId "
+                + "WHERE a.AppointmentDate BETWEEN ? AND ? "
+                + "ORDER BY a.AppointmentDate DESC, ss.StartTime, a.AppointmentId";
+        List<ActivityDetailRow> rows = new ArrayList<>();
+        try (Connection c = Database.connect(); PreparedStatement s = c.prepareStatement(sql)) {
+            s.setDate(1, Date.valueOf(from));
+            s.setDate(2, Date.valueOf(to));
+            try (ResultSet r = s.executeQuery()) {
+                while (r.next()) {
+                    Time start = r.getTime(4);
+                    rows.add(new ActivityDetailRow(
+                            r.getInt(1),
+                            r.getString(2),
+                            r.getDate(3).toLocalDate(),
+                            start == null ? null : start.toLocalTime(),
+                            r.getString(5),
+                            r.getString(6),
+                            r.getString(7),
+                            r.getString(8),
+                            r.getString(9),
+                            r.getString(10)));
+                }
+            }
+        }
+        return rows;
+    }
+
+    public List<RevenueDetailRow> findDetailedRevenueReport(LocalDate from, LocalDate to) throws SQLException {
+        String sql = "SELECT pay.PaymentId, pay.ReceiptNumber, b.BillNumber, a.AppointmentNumber, "
+                + "p.FullName, u.FullName, dep.DepartmentName, b.ConsultationFee, b.TotalServiceAmount, "
+                + "pay.AmountPaid, pay.PaymentMethod, pay.PaidAt "
+                + "FROM Payments pay "
+                + "JOIN Bills b ON b.BillId=pay.BillId "
+                + "JOIN Appointments a ON a.AppointmentId=b.AppointmentId "
+                + "JOIN Patients p ON p.PatientId=a.PatientId "
+                + "JOIN Doctors d ON d.DoctorId=a.DoctorId "
+                + "JOIN Users u ON u.UserId=d.UserId "
+                + "LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId "
+                + "WHERE pay.PaidAt>=? AND pay.PaidAt<? "
+                + "ORDER BY pay.PaidAt DESC, pay.PaymentId";
+        List<RevenueDetailRow> rows = new ArrayList<>();
+        try (Connection c = Database.connect(); PreparedStatement s = c.prepareStatement(sql)) {
+            s.setTimestamp(1, Timestamp.valueOf(from.atStartOfDay()));
+            s.setTimestamp(2, Timestamp.valueOf(to.plusDays(1).atStartOfDay()));
+            try (ResultSet r = s.executeQuery()) {
+                while (r.next()) {
+                    Timestamp paidAt = r.getTimestamp(12);
+                    rows.add(new RevenueDetailRow(
+                            r.getInt(1),
+                            r.getString(2),
+                            r.getString(3),
+                            r.getString(4),
+                            r.getString(5),
+                            r.getString(6),
+                            r.getString(7),
+                            r.getBigDecimal(8),
+                            r.getBigDecimal(9),
+                            r.getBigDecimal(10),
+                            r.getString(11),
+                            paidAt == null ? null : paidAt.toLocalDateTime()));
+                }
+            }
+        }
+        return rows;
+    }
+
     public List<Doctor> findPublicDoctors(String keyword) throws SQLException {
         String search="%"+(keyword==null?"":keyword.trim())+"%";
         String sql="SELECT d.DoctorId,u.FullName,d.AcademicTitle,d.Specialization,dep.DepartmentName,d.RoomNumber FROM Doctors d JOIN Users u ON u.UserId=d.UserId JOIN Departments dep ON dep.DepartmentId=d.DepartmentId WHERE ISNULL(u.IsActive,0)=1 AND ISNULL(d.IsPublished,0)=1 AND d.Status=N'Available' AND (u.FullName LIKE ? OR d.Specialization LIKE ? OR dep.DepartmentName LIKE ?) ORDER BY u.FullName";
@@ -354,14 +397,17 @@ public class HospitalDao {
 
     public List<AppointmentSummary> findAppointmentsForReceptionist(LocalDate date,String status,String keyword)throws SQLException{
         String[] statuses=status==null||status.isBlank()?new String[0]:status.split(",");
-        StringBuilder sql=new StringBuilder("SELECT a.AppointmentId,a.AppointmentNumber,p.FullName,p.Phone,doctorUser.FullName,dep.DepartmentName,a.AppointmentDate,ss.StartTime,ss.EndTime,a.Status,a.QueueNumber FROM Appointments a JOIN Patients p ON p.PatientId=a.PatientId JOIN Doctors d ON d.DoctorId=a.DoctorId JOIN Users doctorUser ON doctorUser.UserId=d.UserId LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId LEFT JOIN ScheduleSlots ss ON ss.SlotId=a.SlotId WHERE a.AppointmentDate=?");
+        StringBuilder sql=new StringBuilder("SELECT a.AppointmentId,a.AppointmentNumber,p.FullName,p.Phone,doctorUser.FullName,dep.DepartmentName,a.AppointmentDate,ss.StartTime,ss.EndTime,a.Status,a.QueueNumber FROM Appointments a JOIN Patients p ON p.PatientId=a.PatientId JOIN Doctors d ON d.DoctorId=a.DoctorId JOIN Users doctorUser ON doctorUser.UserId=d.UserId LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId LEFT JOIN ScheduleSlots ss ON ss.SlotId=a.SlotId WHERE (1=1)");
+        if(date!=null) sql.append(" AND a.AppointmentDate=?");
         if(statuses.length==1)sql.append(" AND a.Status=?");
         else if(statuses.length>1)sql.append(" AND a.Status IN (").append(String.join(",",java.util.Collections.nCopies(statuses.length,"?"))).append(")");
         if(keyword!=null&&!keyword.isBlank())sql.append(" AND (a.AppointmentNumber LIKE ? OR p.FullName LIKE ? OR p.Phone LIKE ?)");
-        sql.append(" ORDER BY ss.StartTime, a.AppointmentId");
+        sql.append(" ORDER BY a.AppointmentDate DESC, ss.StartTime, a.AppointmentId");
         List<AppointmentSummary> appointments=new ArrayList<>();
         try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql.toString())){
-            int index=1;s.setDate(index++,Date.valueOf(date));for(String value:statuses)s.setString(index++,value);
+            int index=1;
+            if(date!=null) s.setDate(index++,Date.valueOf(date));
+            for(String value:statuses)s.setString(index++,value);
             if(keyword!=null&&!keyword.isBlank()){String term="%"+keyword.trim()+"%";s.setString(index++,term);s.setString(index++,term);s.setString(index,term);}
             try(ResultSet r=s.executeQuery()){while(r.next()){
                 Time start=r.getTime(8),end=r.getTime(9);int queue=r.getInt(11);Integer queueNumber=r.wasNull()?null:queue;
@@ -380,7 +426,7 @@ public class HospitalDao {
                 String lock="SELECT DoctorId,AppointmentDate,Status FROM Appointments WITH (UPDLOCK,HOLDLOCK) WHERE AppointmentId=?";
                 try(PreparedStatement s=c.prepareStatement(lock)){s.setInt(1,appointmentId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Không tìm thấy lịch hẹn.");doctorId=r.getInt(1);appointmentDate=r.getDate(2).toLocalDate();status=r.getString(3);}}
                 if(!"BOOKED".equalsIgnoreCase(status))throw new SQLException("Lịch hẹn không còn ở trạng thái đã đặt.");
-                if(!today.equals(appointmentDate))throw new SQLException("Chỉ check-in lịch hẹn trong ngày.");
+                if(today!=null&&today.isBefore(appointmentDate))throw new SQLException("Chưa đến ngày khám; không thể check-in trước.");
                 int queueNumber;
                 String next="SELECT ISNULL(MAX(QueueNumber),0)+1 FROM Appointments WITH (UPDLOCK,HOLDLOCK) WHERE DoctorId=? AND AppointmentDate=?";
                 try(PreparedStatement s=c.prepareStatement(next)){s.setInt(1,doctorId);s.setDate(2,Date.valueOf(appointmentDate));try(ResultSet r=s.executeQuery()){r.next();queueNumber=r.getInt(1);}}
@@ -436,6 +482,18 @@ public class HospitalDao {
     }
 
     public void publishDoctorSchedule(int doctorUserId,LocalDate date,String shift)throws SQLException{
+        int doctorId;
+        try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement("SELECT DoctorId FROM Doctors WHERE UserId=?")){
+            s.setInt(1,doctorUserId);
+            try(ResultSet r=s.executeQuery()){
+                if(!r.next())throw new SQLException("Tài khoản không phải Doctor.");
+                doctorId=r.getInt(1);
+            }
+        }
+        publishDoctorScheduleForReceptionist(doctorId, doctorUserId, date, shift);
+    }
+
+    public void publishDoctorScheduleForReceptionist(int doctorId,int createdByUserId,LocalDate date,String shift)throws SQLException{
         if(date==null||date.isBefore(LocalDate.now())||date.isAfter(LocalDate.now().plusYears(1)))throw new SQLException("Ngày làm việc phải từ hôm nay đến trong vòng một năm.");
         if(!"AM".equals(shift)&&!"PM".equals(shift))throw new SQLException("Ca khám không hợp lệ.");
         String shiftName="AM".equals(shift)?"Ca sáng":"Ca chiều";
@@ -445,28 +503,48 @@ public class HospitalDao {
             c.setAutoCommit(false);
             c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
             try{
-                int doctorId;
-                String validDoctor="SELECT d.DoctorId FROM Doctors d JOIN Users u ON u.UserId=d.UserId JOIN Roles r ON r.RoleId=u.RoleId WHERE u.UserId=? AND r.RoleName=N'Doctor' AND ISNULL(u.IsActive,0)=1";
-                try(PreparedStatement s=c.prepareStatement(validDoctor)){s.setInt(1,doctorUserId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Tài khoản không phải Doctor đang hoạt động.");doctorId=r.getInt(1);}}
+                int doctorUserId;
+                String validDoctor="SELECT d.UserId FROM Doctors d JOIN Users u ON u.UserId=d.UserId JOIN Roles r ON r.RoleId=u.RoleId WHERE d.DoctorId=? AND r.RoleName=N'Doctor' AND ISNULL(u.IsActive,0)=1";
+                try(PreparedStatement s=c.prepareStatement(validDoctor)){s.setInt(1,doctorId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Bác sĩ không tồn tại hoặc hiện không hoạt động.");doctorUserId=r.getInt(1);}}
                 String approvedLeave="SELECT RequestId FROM LeaveRequests WITH (UPDLOCK,HOLDLOCK) WHERE UserId=? AND Status=N'Approved' AND ? BETWEEN StartDate AND EndDate";
-                try(PreparedStatement s=c.prepareStatement(approvedLeave)){s.setInt(1,doctorUserId);s.setDate(2,Date.valueOf(date));try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("Không thể mở lịch trong ngày nghỉ đã được duyệt.");}}
+                try(PreparedStatement s=c.prepareStatement(approvedLeave)){s.setInt(1,doctorUserId);s.setDate(2,Date.valueOf(date));try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("Bác sĩ đang có đơn nghỉ phép đã được duyệt trong ngày này.");}}
                 String existing="SELECT ScheduleId FROM Schedules WITH (UPDLOCK,HOLDLOCK) WHERE DoctorId=? AND WorkDate=? AND ShiftName=?";
-                try(PreparedStatement s=c.prepareStatement(existing)){s.setInt(1,doctorId);s.setDate(2,Date.valueOf(date));s.setNString(3,shiftName);try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("Ca khám ngày này đã tồn tại; không thể tạo trùng.");}}
+                try(PreparedStatement s=c.prepareStatement(existing)){s.setInt(1,doctorId);s.setDate(2,Date.valueOf(date));s.setNString(3,shiftName);try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("Ca khám ngày này của bác sĩ đã tồn tại; không thể tạo trùng.");}}
                 int scheduleId;
                 String insert="INSERT INTO Schedules(DoctorId,WorkDate,ShiftName,Status,CreatedBy) VALUES(?,?,?,'PUBLISHED',?)";
-                try(PreparedStatement s=c.prepareStatement(insert,Statement.RETURN_GENERATED_KEYS)){s.setInt(1,doctorId);s.setDate(2,Date.valueOf(date));s.setNString(3,shiftName);s.setInt(4,doctorUserId);s.executeUpdate();try(ResultSet r=s.getGeneratedKeys()){if(!r.next())throw new SQLException("Không tạo được ca khám.");scheduleId=r.getInt(1);}}
+                try(PreparedStatement s=c.prepareStatement(insert,Statement.RETURN_GENERATED_KEYS)){s.setInt(1,doctorId);s.setDate(2,Date.valueOf(date));s.setNString(3,shiftName);s.setInt(4,createdByUserId);s.executeUpdate();try(ResultSet r=s.getGeneratedKeys()){if(!r.next())throw new SQLException("Không tạo được ca khám.");scheduleId=r.getInt(1);}}
                 String insertSlot="INSERT INTO ScheduleSlots(ScheduleId,StartTime,EndTime,IsBooked,IsBlocked) VALUES(?,?,?,0,0)";
                 try(PreparedStatement s=c.prepareStatement(insertSlot)){LocalTime cursor=start;while(cursor.isBefore(end)){LocalTime next=cursor.plusMinutes(30);s.setInt(1,scheduleId);s.setTime(2,Time.valueOf(cursor));s.setTime(3,Time.valueOf(next));s.addBatch();cursor=next;}s.executeBatch();}
-                audit(c,doctorUserId,"PUBLISH_DOCTOR_SCHEDULE",scheduleId,"WorkDate="+date+"; Shift="+shiftName+"; Slots="+java.time.Duration.between(start,end).toMinutes()/30);
+                audit(c,createdByUserId,"RECEPTION_PUBLISH_SCHEDULE",scheduleId,"DoctorId="+doctorId+"; WorkDate="+date+"; Shift="+shiftName+"; Slots="+java.time.Duration.between(start,end).toMinutes()/30);
                 c.commit();
             }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
         }
     }
 
+    public List<ScheduleSummary> findSchedulesForReceptionist(Integer doctorId) throws SQLException {
+        String sql="SELECT sc.ScheduleId,sc.WorkDate,sc.ShiftName,sc.Status,MIN(ss.StartTime),MAX(ss.EndTime),COUNT(ss.SlotId),SUM(CASE WHEN ISNULL(ss.IsBooked,0)=1 THEN 1 ELSE 0 END),SUM(CASE WHEN ISNULL(ss.IsBlocked,0)=1 THEN 1 ELSE 0 END),u.FullName,d.Specialization "
+                +"FROM Schedules sc JOIN Doctors d ON d.DoctorId=sc.DoctorId JOIN Users u ON u.UserId=d.UserId LEFT JOIN ScheduleSlots ss ON ss.ScheduleId=sc.ScheduleId "
+                +"WHERE (1=1" + (doctorId!=null ? " AND sc.DoctorId=?" : "") + ") AND sc.WorkDate>=DATEADD(day,-7,CONVERT(date,GETDATE())) "
+                +"GROUP BY sc.ScheduleId,sc.WorkDate,sc.ShiftName,sc.Status,u.FullName,d.Specialization ORDER BY sc.WorkDate DESC,sc.ShiftName";
+        List<ScheduleSummary> schedules=new ArrayList<>();
+        try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql)){
+            if(doctorId!=null)s.setInt(1,doctorId);
+            try(ResultSet r=s.executeQuery()){
+                while(r.next()){
+                    Time start=r.getTime(5),end=r.getTime(6);
+                    schedules.add(new ScheduleSummary(r.getInt(1),r.getDate(2).toLocalDate(),r.getString(3),r.getString(4),
+                            start==null?null:start.toLocalTime(),end==null?null:end.toLocalTime(),r.getInt(7),r.getInt(8),r.getInt(9),
+                            r.getString(10),r.getString(11)));
+                }
+            }
+        }
+        return schedules;
+    }
+
     public List<ScheduleSummary> findSchedulesForDoctor(int userId) throws SQLException {
-        String sql="SELECT sc.ScheduleId,sc.WorkDate,sc.ShiftName,sc.Status,MIN(ss.StartTime),MAX(ss.EndTime),COUNT(ss.SlotId),SUM(CASE WHEN ISNULL(ss.IsBooked,0)=1 THEN 1 ELSE 0 END),SUM(CASE WHEN ISNULL(ss.IsBlocked,0)=1 THEN 1 ELSE 0 END) "
-                +"FROM Doctors d JOIN Schedules sc ON sc.DoctorId=d.DoctorId LEFT JOIN ScheduleSlots ss ON ss.ScheduleId=sc.ScheduleId "
-                +"WHERE d.UserId=? AND sc.WorkDate>=DATEADD(day,-7,CONVERT(date,GETDATE())) GROUP BY sc.ScheduleId,sc.WorkDate,sc.ShiftName,sc.Status ORDER BY sc.WorkDate,sc.ShiftName";
+        String sql="SELECT sc.ScheduleId,sc.WorkDate,sc.ShiftName,sc.Status,MIN(ss.StartTime),MAX(ss.EndTime),COUNT(ss.SlotId),SUM(CASE WHEN ISNULL(ss.IsBooked,0)=1 THEN 1 ELSE 0 END),SUM(CASE WHEN ISNULL(ss.IsBlocked,0)=1 THEN 1 ELSE 0 END),u.FullName,d.Specialization "
+                +"FROM Doctors d JOIN Schedules sc ON sc.DoctorId=d.DoctorId JOIN Users u ON u.UserId=d.UserId LEFT JOIN ScheduleSlots ss ON ss.ScheduleId=sc.ScheduleId "
+                +"WHERE d.UserId=? AND sc.WorkDate>=DATEADD(day,-7,CONVERT(date,GETDATE())) GROUP BY sc.ScheduleId,sc.WorkDate,sc.ShiftName,sc.Status,u.FullName,d.Specialization ORDER BY sc.WorkDate,sc.ShiftName";
         List<ScheduleSummary> schedules=new ArrayList<>();
         try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql)){
             s.setInt(1,userId);
@@ -474,7 +552,8 @@ public class HospitalDao {
                 while(r.next()){
                     Time start=r.getTime(5),end=r.getTime(6);
                     schedules.add(new ScheduleSummary(r.getInt(1),r.getDate(2).toLocalDate(),r.getString(3),r.getString(4),
-                            start==null?null:start.toLocalTime(),end==null?null:end.toLocalTime(),r.getInt(7),r.getInt(8),r.getInt(9)));
+                            start==null?null:start.toLocalTime(),end==null?null:end.toLocalTime(),r.getInt(7),r.getInt(8),r.getInt(9),
+                            r.getString(10),r.getString(11)));
                 }
             }
         }
@@ -495,7 +574,7 @@ public class HospitalDao {
         String doctorSql="SELECT d.ConsultationFee FROM Doctors d JOIN Users u ON u.UserId=d.UserId JOIN Roles r ON r.RoleId=u.RoleId WHERE d.DoctorId=? AND r.RoleName=N'Doctor' AND ISNULL(u.IsActive,0)=1 AND d.Status=N'Available' AND d.IsPublished=1 AND NOT EXISTS(SELECT 1 FROM LeaveRequests lr WHERE lr.UserId=u.UserId AND lr.Status=N'Approved' AND ? BETWEEN lr.StartDate AND lr.EndDate)";
         String lockSlot="UPDATE ss SET IsBooked=1 FROM ScheduleSlots ss JOIN Schedules sc ON sc.ScheduleId=ss.ScheduleId JOIN Doctors d ON d.DoctorId=sc.DoctorId JOIN Users u ON u.UserId=d.UserId WHERE ss.SlotId=? AND ss.IsBooked=0 AND ISNULL(ss.IsBlocked,0)=0 AND sc.DoctorId=? AND sc.WorkDate=? AND sc.ShiftName=? AND sc.Status='PUBLISHED' AND ISNULL(u.IsActive,0)=1 AND d.Status=N'Available' AND d.IsPublished=1 AND NOT EXISTS(SELECT 1 FROM LeaveRequests lr WHERE lr.UserId=u.UserId AND lr.Status=N'Approved' AND sc.WorkDate BETWEEN lr.StartDate AND lr.EndDate) AND (sc.WorkDate>CONVERT(date,GETDATE()) OR ss.StartTime>CONVERT(time,GETDATE()))";
         String appointmentSql="INSERT INTO Appointments(AppointmentNumber,PatientId,DoctorId,SlotId,AppointmentDate,Reason,ConsultationFee) VALUES(?,?,?,?,?,?,?)";
-        String newAccessCode=null,appointmentNumber=null;
+        String appointmentNumber=null;
         try(Connection c=Database.connect()){
             c.setAutoCommit(false);c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
             try{
@@ -508,7 +587,7 @@ public class HospitalDao {
                     if(storedBirthDate==null||!fullName.trim().equalsIgnoreCase(r.getString(2).trim())||!birthDate.equals(storedBirthDate.toLocalDate()))throw new SQLException("PATIENT_IDENTITY_MISMATCH: Số điện thoại đã gắn với hồ sơ khác. Vui lòng đối chiếu trực tiếp giấy tờ và thông tin bệnh nhân trước khi đăng ký.");
                     patientId=r.getInt(1);
                 }}}
-                if(patientId==0){newAccessCode=PatientAccessCode.generate();try(PreparedStatement s=c.prepareStatement(patientSql,Statement.RETURN_GENERATED_KEYS)){s.setNString(1,fullName.trim());s.setDate(2,Date.valueOf(birthDate));s.setNString(3,gender);s.setString(4,phone.trim());s.setString(5,email==null||email.isBlank()?null:email.trim());s.setString(6,PatientAccessCode.hash(newAccessCode));s.executeUpdate();try(ResultSet r=s.getGeneratedKeys()){if(!r.next())throw new SQLException("Không tạo được hồ sơ bệnh nhân.");patientId=r.getInt(1);}}}
+                if(patientId==0){try(PreparedStatement s=c.prepareStatement(patientSql,Statement.RETURN_GENERATED_KEYS)){s.setNString(1,fullName.trim());s.setDate(2,Date.valueOf(birthDate));s.setNString(3,gender);s.setString(4,phone.trim());s.setString(5,email==null||email.isBlank()?null:email.trim());s.setString(6,UUID.randomUUID().toString());s.executeUpdate();try(ResultSet r=s.getGeneratedKeys()){if(!r.next())throw new SQLException("Không tạo được hồ sơ bệnh nhân.");patientId=r.getInt(1);}}}
                 try(PreparedStatement fee=c.prepareStatement(doctorSql)){fee.setInt(1,doctorId);fee.setDate(2,Date.valueOf(date));try(ResultSet fr=fee.executeQuery()){if(!fr.next())throw new SQLException("Bác sĩ không còn nhận đặt lịch hoặc đang nghỉ trong ngày đã chọn.");java.math.BigDecimal amount=fr.getBigDecimal(1);
                         try(PreparedStatement lock=c.prepareStatement(lockSlot)){lock.setInt(1,slotId);lock.setInt(2,doctorId);lock.setDate(3,Date.valueOf(date));lock.setNString(4,"AM".equals(shift)?"Ca sáng":"Ca chiều");AppointmentSafety.requireSlotReserved(lock.executeUpdate());}
                         appointmentNumber="APT-"+date.toString().replace("-","")+"-"+UUID.randomUUID().toString().substring(0,6).toUpperCase(Locale.ROOT);
@@ -516,17 +595,21 @@ public class HospitalDao {
                             try(ResultSet keys=appointment.getGeneratedKeys()){if(!keys.next())throw new SQLException("Không lấy được mã lịch hẹn.");int appointmentId=keys.getInt(1);if(createdBy!=null){try(PreparedStatement log=c.prepareStatement("INSERT INTO SystemLogs(UserId,Action,EntityName,RecordId,Details,Reason) VALUES(?,?,?,?,?,?)")){log.setInt(1,createdBy);log.setString(2,"REGISTER_WALK_IN");log.setString(3,"Appointments");log.setString(4,String.valueOf(appointmentId));log.setNString(5,"PatientId="+patientId+"; AppointmentNumber="+appointmentNumber);log.setNString(6,"Receptionist registered an appointment");log.executeUpdate();}}}
                         }
                 }}
-                c.commit();return new PatientBookingResult(appointmentNumber,newAccessCode);
+                c.commit();return new PatientBookingResult(appointmentNumber,null);
             }catch(SQLException|RuntimeException ex){c.rollback();throw ex;}
         }
     }
 
-    public Integer verifyPatientAccess(String contact,boolean email,String rawCode)throws SQLException{
-        String sql=email?"SELECT PatientId,AccessCode FROM Patients WHERE Email=?":"SELECT PatientId,AccessCode FROM Patients WHERE Phone=?";
+    public Integer verifyPatientAccess(String phone,String email)throws SQLException{
+        if(phone==null||email==null||phone.isBlank()||email.isBlank()) return null;
+        String cleanPhone=phone.replaceAll("[^0-9+]","");
+        String cleanEmail=email.trim().toLowerCase(Locale.ROOT);
+        String sql="SELECT TOP 1 PatientId FROM Patients WHERE REPLACE(REPLACE(REPLACE(Phone,' ',''),'-',''),'.','')=? AND LOWER(LTRIM(RTRIM(Email)))=?";
         try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql)){
-            s.setString(1,contact.trim());
+            s.setString(1,cleanPhone);
+            s.setString(2,cleanEmail);
             try(ResultSet r=s.executeQuery()){
-                while(r.next())if(PatientAccessCode.verify(rawCode,r.getString(2)))return r.getInt(1);
+                if(r.next())return r.getInt(1);
             }
         }
         return null;
@@ -653,10 +736,23 @@ public class HospitalDao {
     }
 
     public List<BillSummary> findBillsForReceptionist()throws SQLException{
-        String sql="SELECT b.BillId,b.BillNumber,a.AppointmentNumber,p.FullName,du.FullName,dep.DepartmentName,b.ConsultationFee,b.TotalServiceAmount,b.TotalAmount,b.PaymentStatus,pay.ReceiptNumber,pay.AmountPaid,pay.PaidAt FROM Bills b JOIN Appointments a ON a.AppointmentId=b.AppointmentId JOIN Patients p ON p.PatientId=a.PatientId JOIN Doctors d ON d.DoctorId=a.DoctorId JOIN Users du ON du.UserId=d.UserId LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId LEFT JOIN Payments pay ON pay.BillId=b.BillId ORDER BY CASE WHEN b.PaymentStatus='UNPAID' THEN 0 ELSE 1 END,b.CreatedAt DESC,b.BillId DESC";
+        String sql="SELECT b.BillId,b.BillNumber,a.AppointmentNumber,a.Status,a.QueueNumber,p.FullName,du.FullName,dep.DepartmentName,"
+                +"COALESCE(b.ConsultationFee,a.ConsultationFee),"
+                +"COALESCE(b.TotalServiceAmount,(SELECT COALESCE(SUM(o.UnitPrice),0) FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId WHERE mr.AppointmentId=a.AppointmentId AND ISNULL(o.Status,'ORDERED')<>'CANCELLED'),0),"
+                +"(SELECT COALESCE(SUM(pd.Quantity*pd.UnitPrice),0) FROM PrescriptionDetails pd JOIN Prescriptions pr ON pr.PrescriptionId=pd.PrescriptionId JOIN MedicalRecords mr ON mr.RecordId=pr.RecordId WHERE mr.AppointmentId=a.AppointmentId),"
+                +"COALESCE(b.TotalAmount,a.ConsultationFee+(SELECT COALESCE(SUM(o.UnitPrice),0) FROM MedicalServiceOrders o JOIN MedicalRecords mr ON mr.RecordId=o.RecordId WHERE mr.AppointmentId=a.AppointmentId AND ISNULL(o.Status,'ORDERED')<>'CANCELLED')),"
+                +"COALESCE(b.PaymentStatus,'PENDING_BILL'),pay.ReceiptNumber,pay.AmountPaid,pay.PaidAt "
+                +"FROM Appointments a JOIN Patients p ON p.PatientId=a.PatientId JOIN Doctors d ON d.DoctorId=a.DoctorId JOIN Users du ON du.UserId=d.UserId LEFT JOIN Departments dep ON dep.DepartmentId=d.DepartmentId LEFT JOIN Bills b ON b.AppointmentId=a.AppointmentId LEFT JOIN Payments pay ON pay.BillId=b.BillId "
+                +"WHERE b.BillId IS NOT NULL OR a.Status IN('CHECKED_IN','IN_CONSULTATION') "
+                +"ORDER BY CASE WHEN b.BillId IS NOT NULL AND b.PaymentStatus='UNPAID' THEN 0 WHEN b.BillId IS NULL AND a.Status IN('CHECKED_IN','IN_CONSULTATION') THEN 1 ELSE 2 END,COALESCE(b.CreatedAt,a.CheckedInAt,a.CreatedAt) DESC,a.AppointmentId DESC";
         List<BillSummary> bills=new ArrayList<>();
         try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql);ResultSet r=s.executeQuery()){
-            while(r.next()){Timestamp paid=r.getTimestamp(13);bills.add(new BillSummary(r.getInt(1),r.getString(2),r.getString(3),r.getString(4),r.getString(5),r.getString(6),r.getBigDecimal(7),r.getBigDecimal(8),r.getBigDecimal(9),r.getString(10),r.getString(11),r.getBigDecimal(12),paid==null?null:paid.toLocalDateTime()));}
+            while(r.next()){
+                int billRaw=r.getInt(1);Integer billId=r.wasNull()?null:billRaw;
+                int queueRaw=r.getInt(5);Integer queueNumber=r.wasNull()?null:queueRaw;
+                Timestamp paid=r.getTimestamp(16);
+                bills.add(new BillSummary(billId,r.getString(2),r.getString(3),r.getString(4),queueNumber,r.getString(6),r.getString(7),r.getString(8),r.getBigDecimal(9),r.getBigDecimal(10),r.getBigDecimal(11),r.getBigDecimal(12),r.getString(13),r.getString(14),r.getBigDecimal(15),paid==null?null:paid.toLocalDateTime()));
+            }
         }
         return bills;
     }
@@ -700,7 +796,7 @@ public class HospitalDao {
         String sql="SELECT u.UserId,u.Username,u.FullName,u.Email,ISNULL(u.Phone,''),ISNULL(u.DepartmentId,0),"
                 +"ISNULL(dep.DepartmentName,N'Toàn viện / Quầy tiếp nhận'),r.RoleName,ISNULL(u.IsActive,1) "
                 +"FROM Users u JOIN Roles r ON r.RoleId=u.RoleId LEFT JOIN Departments dep ON dep.DepartmentId=u.DepartmentId "
-                +"WHERE r.RoleName IN(N'Receptionist',N'MedicalStaff') ORDER BY r.RoleName,u.FullName";
+                +"WHERE r.RoleName=N'Receptionist' ORDER BY u.FullName";
         List<DoctorProfile> staffAccounts=new ArrayList<>();
         try(Connection c=Database.connect();PreparedStatement s=c.prepareStatement(sql);ResultSet r=s.executeQuery()){
             while(r.next()){
@@ -708,7 +804,7 @@ public class HospitalDao {
                 String roleName=r.getString(8);
                 boolean active=r.getBoolean(9);
                 staffAccounts.add(new DoctorProfile(0,userId,r.getString(2),r.getString(3),r.getString(4),r.getString(5),
-                        r.getInt(6),r.getString(7),roleName,"Receptionist".equals(roleName)?"Lễ tân":"Nhân viên y tế","",
+                        r.getInt(6),r.getString(7),roleName,"Lễ tân","",
                         java.math.BigDecimal.ZERO,active?"Available":"Unavailable",active));
             }
         }
@@ -779,7 +875,7 @@ public class HospitalDao {
             c.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
             c.setAutoCommit(false);
             try{
-                String lock="SELECT u.UserId FROM Users u WITH (UPDLOCK,HOLDLOCK) JOIN Roles r WITH (UPDLOCK,HOLDLOCK) ON r.RoleId=u.RoleId WHERE u.UserId=? AND r.RoleName IN(N'Receptionist',N'MedicalStaff')";
+                String lock="SELECT u.UserId FROM Users u WITH (UPDLOCK,HOLDLOCK) JOIN Roles r WITH (UPDLOCK,HOLDLOCK) ON r.RoleId=u.RoleId WHERE u.UserId=? AND r.RoleName=N'Receptionist'";
                 try(PreparedStatement s=c.prepareStatement(lock)){s.setInt(1,userId);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("STAFF_NOT_FOUND");}}
                 String checkUsername="SELECT UserId FROM Users WITH (UPDLOCK,HOLDLOCK) WHERE Username=? AND UserId<>?";
                 try(PreparedStatement s=c.prepareStatement(checkUsername)){s.setString(1,updatedUsername);s.setInt(2,userId);try(ResultSet r=s.executeQuery()){if(r.next())throw new SQLException("STAFF_USERNAME_EXISTS");}}
@@ -918,7 +1014,7 @@ public class HospitalDao {
     }
 
     private void ensureLeaveRole(Connection c,int userId)throws SQLException{
-        try(PreparedStatement s=c.prepareStatement("SELECT r.RoleName FROM Users u JOIN Roles r ON r.RoleId=u.RoleId WHERE u.UserId=? AND ISNULL(u.IsActive,0)=1")){s.setInt(1,userId);try(ResultSet r=s.executeQuery()){if(!r.next()||!List.of("Doctor","Receptionist","MedicalStaff").contains(r.getString(1)))throw new SQLException("Tài khoản không được phép gửi yêu cầu nghỉ.");}}
+        try(PreparedStatement s=c.prepareStatement("SELECT r.RoleName FROM Users u JOIN Roles r ON r.RoleId=u.RoleId WHERE u.UserId=? AND ISNULL(u.IsActive,0)=1")){s.setInt(1,userId);try(ResultSet r=s.executeQuery()){if(!r.next()||!List.of("Doctor","Receptionist").contains(r.getString(1)))throw new SQLException("Tài khoản không được phép gửi yêu cầu nghỉ.");}}
     }
 
     public int decideLeaveRequest(int requestId,int managerUserId,String decision,String managerReason)throws SQLException{

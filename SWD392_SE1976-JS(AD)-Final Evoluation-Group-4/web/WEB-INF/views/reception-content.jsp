@@ -12,7 +12,7 @@ String title="appointments".equals(pageKey)?"Danh sách lịch hẹn":"check-in"
 %>
 <p class="muted">Tra cứu lịch hẹn trong database. Số thứ tự được cấp khi check-in và duy nhất theo bác sĩ trong ngày.</p>
 <%if(request.getAttribute("receptionMessage")!=null){%><div class="notice notice-success" role="status"><%=escReception(request.getAttribute("receptionMessage").toString())%></div><%}%>
-<%if(Boolean.TRUE.equals(request.getAttribute("checkedIn"))){%><div class="notice notice-success" role="status">Check-in thành công. Số thứ tự: <strong><%=escReception(String.valueOf(request.getAttribute("queueNumber")))%></strong></div><%}%>
+<%if(Boolean.TRUE.equals(request.getAttribute("checkedIn"))){%><div class="notice notice-success" role="status">Check-in thành công. Số thứ tự: <strong><%=escReception(String.valueOf(request.getAttribute("queueNumber")))%></strong> · Lượt khám đã hiển thị trạng thái chờ chốt hóa đơn tại mục <a href="<%=request.getContextPath()%>/dashboard?page=payments">Thanh toán tại quầy</a>.</div><%}%>
 <%if(request.getAttribute("actionError")!=null){%><div class="notice notice-error" role="alert"><%=escReception(request.getAttribute("actionError").toString())%></div><%}%>
 <%if(request.getAttribute("dateError")!=null){%><div class="notice notice-error" role="status"><%=escReception(request.getAttribute("dateError").toString())%></div><%}%>
 <%if(request.getAttribute("loadError")!=null){%><div class="notice notice-error" role="alert"><%=escReception(request.getAttribute("loadError").toString())%></div><%}%>

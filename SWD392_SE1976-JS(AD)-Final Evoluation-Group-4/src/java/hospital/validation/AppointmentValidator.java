@@ -10,7 +10,7 @@ public final class AppointmentValidator {
         LocalDate birth=parseDate(dateOfBirth); if(birth==null||birth.isAfter(LocalDate.now())) errors.put("dateOfBirth","Ngày sinh không hợp lệ.");
         if(gender==null||!GENDERS.contains(gender)) errors.put("gender","Vui lòng chọn giới tính hợp lệ.");
         if(blank(phone)||!phone.matches("^(0|\\+84)[0-9]{9,10}$")) errors.put("phone","Số điện thoại không hợp lệ.");
-        if(!blank(email)&&(!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")||email.length()>100)) errors.put("email","Email không hợp lệ.");
+        if(blank(email)||!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")||email.length()>100) errors.put("email","Email là bắt buộc và phải đúng định dạng.");
         if(blank(reason)||reason.trim().length()>255) errors.put("reason","Lý do khám là bắt buộc và không quá 255 ký tự.");
         if(!positive(doctorId)) errors.put("doctorId","Vui lòng chọn bác sĩ.");
         LocalDate visit=parseDate(appointmentDate); if(visit==null||visit.isBefore(LocalDate.now())) errors.put("appointmentDate","Ngày khám không được ở trong quá khứ.");

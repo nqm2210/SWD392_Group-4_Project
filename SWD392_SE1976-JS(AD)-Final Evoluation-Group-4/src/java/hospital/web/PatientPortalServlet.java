@@ -46,28 +46,27 @@ public class PatientPortalServlet extends HttpServlet {
     }
 
     private void verifyPatient(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
-        String contact = value(req, "contact");
-        String code = value(req, "accessCode");
-        boolean email = contact.contains("@");
-        if (contact.isBlank() || contact.length() > 100 || code.length() > 50 || !code.matches("[A-Za-z0-9_-]{43}")) {
-            req.setAttribute("accessError", "Nhập số điện thoại hoặc email đã đăng ký cùng mã truy cập 43 ký tự.");
+        String phone = value(req, "phone");
+        String email = value(req, "email");
+        if (phone.isBlank() || phone.length() > 20 || email.isBlank() || email.length() > 100) {
+            req.setAttribute("accessError", "Vui lòng nhập đầy đủ Số điện thoại và Email đã đăng ký.");
             render(req, res);
             return;
         }
-        if (email && !contact.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+        if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
             req.setAttribute("accessError", "Email chưa đúng định dạng.");
             render(req, res);
             return;
         }
-        if (!email && !contact.matches("[0-9+() .-]{7,20}")) {
+        if (!phone.matches("^(0|\\+84)[0-9]{9,10}$") && !phone.matches("[0-9+() .-]{7,20}")) {
             req.setAttribute("accessError", "Số điện thoại chưa đúng định dạng.");
             render(req, res);
             return;
         }
         try {
-            Integer patientId = dao.verifyPatientAccess(contact, email, code);
+            Integer patientId = dao.verifyPatientAccess(phone, email);
             if (patientId == null) {
-                req.setAttribute("accessError", "Không xác minh được thông tin. Nếu hồ sơ cũ chưa nhận mã truy cập, vui lòng xác minh trực tiếp tại quầy.");
+                req.setAttribute("accessError", "Không tìm thấy hồ sơ khớp với Số điện thoại và Email đã cung cấp. Vui lòng kiểm tra lại thông tin.");
                 render(req, res);
                 return;
             }

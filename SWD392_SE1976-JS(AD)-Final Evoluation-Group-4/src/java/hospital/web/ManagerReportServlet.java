@@ -27,8 +27,13 @@ public class ManagerReportServlet extends HttpServlet {
         req.setAttribute("fromDate",fromValue);req.setAttribute("toDate",toValue);
         if(errors.isEmpty())try{
             LocalDate from=LocalDate.parse(fromValue),to=LocalDate.parse(toValue);
-            if("revenue-report".equals(page))req.setAttribute("revenueRows",dao.findRevenueReport(from,to));
-            else req.setAttribute("activityRows",dao.findActivityReport(from,to));
+            if("revenue-report".equals(page)){
+                req.setAttribute("revenueRows",dao.findRevenueReport(from,to));
+                req.setAttribute("detailedRevenueRows",dao.findDetailedRevenueReport(from,to));
+            } else {
+                req.setAttribute("activityRows",dao.findActivityReport(from,to));
+                req.setAttribute("detailedActivityRows",dao.findDetailedActivityReport(from,to));
+            }
         }catch(SQLException ex){getServletContext().log("Không thể tải báo cáo.",ex);req.setAttribute("loadError","Không thể đọc dữ liệu báo cáo từ database.");}
         req.getRequestDispatcher("/WEB-INF/views/dashboard.jsp").forward(req,res);
     }

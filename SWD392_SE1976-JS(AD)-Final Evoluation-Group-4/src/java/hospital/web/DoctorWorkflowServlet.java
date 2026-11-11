@@ -65,7 +65,12 @@ public class DoctorWorkflowServlet extends HttpServlet {
             }
             String targetPage=req.getParameter("view");if(targetPage==null||!List.of("consultation","patients","prescriptions","lab-orders").contains(targetPage))targetPage="consultation";
             SessionFlash.put(req.getSession(),"doctor.saved",successMessage(action));
-            res.sendRedirect(req.getContextPath()+"/dashboard?page="+targetPage+("complete".equals(action)?"":"&appointmentId="+id));
+            String dateParam=req.getParameter("date");
+            String redirectUrl=req.getContextPath()+"/dashboard?page="+targetPage+("complete".equals(action)?"":"&appointmentId="+id);
+            if(dateParam!=null&&!dateParam.isBlank()){
+                redirectUrl+="&date="+java.net.URLEncoder.encode(dateParam.trim(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            res.sendRedirect(redirectUrl);
         }catch(SQLException ex){
             getServletContext().log("Không thể cập nhật hồ sơ khám.",ex);
             req.setAttribute("actionError",safeError(ex));
@@ -105,7 +110,7 @@ public class DoctorWorkflowServlet extends HttpServlet {
         if(user==null||!"Doctor".equals(user.role())){res.sendError(403,"Chỉ Doctor được truy cập hồ sơ khám.");return null;}return user;
     }
     private String successMessage(String action){
-        if("complete".equals(action))return "Đã hoàn tất lượt khám và cập nhật hồ sơ.";
+        if("complete".equals(action))return "Đã hoàn tất lượt khám, cập nhật hồ sơ và chốt hóa đơn chờ thanh toán.";
         if("medicine".equals(action))return "Đã lưu đơn thuốc vào database.";
         if("medicine-update".equals(action))return "Đã cập nhật dòng thuốc vào database.";
         if("medicine-delete".equals(action))return "Đã xóa dòng thuốc khỏi đơn.";
@@ -115,8 +120,9 @@ public class DoctorWorkflowServlet extends HttpServlet {
     }
     private String safeError(SQLException ex){
         String message=ex.getMessage();
-        if(message!=null&&message.contains("SERVICE_ORDERS_PENDING"))return "Chưa thể hoàn tất lượt khám: còn chỉ định chưa hoàn tất hoặc kết quả chưa được phát hành.";
-        if(message!=null&&List.of("Hãy ","Hồ sơ","Số lượng","Dòng thuốc","Ưu tiên","Thuốc không tồn tại","Chỉ được","Không tìm thấy dòng thuốc").stream().anyMatch(message::startsWith))return message;
+        if(message!=null&&!message.isBlank()&&!message.contains("SQL Server")&&!message.contains("jdbc")&&!message.contains("at com.microsoft")){
+            return message;
+        }
         return "Không thể lưu hồ sơ vào database. Không có thay đổi nào được xác nhận.";
     }
     private String value(HttpServletRequest req,String key){String v=req.getParameter(key);return v==null?"":v.trim();}
